@@ -1,0 +1,6 @@
+# literature-search 依赖（Python ≥ 3.10）
+# 安装：python -m pip install -r requirements.txt
+# 国内慢：python -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+requests>=2.31
+openpyxl>=3.1
+playwright>=1.40

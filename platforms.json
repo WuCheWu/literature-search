@@ -1,0 +1,241 @@
+{
+  "version": 1,
+  "_说明": "文献平台注册表。规则 6 列出的 6 个平台家族/8 个网址全部在内；pubmed 是原有公共库，保留在校验名单里。新增网址请用 python scripts/platforms.py --add <url>，或直接在 platforms.json 里加一条（字段照抄一条最接近的）。",
+  "platforms": [
+    {
+      "id": "pubmed",
+      "name": "PubMed",
+      "short": "PubMed",
+      "aliases": [
+        "pubmed",
+        "MEDLINE"
+      ],
+      "home": "https://pubmed.ncbi.nlm.nih.gov/",
+      "entry": "https://pubmed.ncbi.nlm.nih.gov/",
+      "entries": [
+        {
+          "label": "PubMed 主页",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/"
+        }
+      ],
+      "lang": "en",
+      "kind": "index",
+      "access": "open",
+      "access_label": "公开（无需校园订阅）",
+      "fulltext": "oa",
+      "fulltext_label": "开放获取或出版社页面",
+      "adapter": "pubmed",
+      "selectors": {},
+      "order": 1,
+      "selectable": true,
+      "default": true,
+      "note": "走 E-utilities，已有专用适配器；不需要学校账号。"
+    },
+    {
+      "id": "cnki",
+      "name": "中国知网 CNKI",
+      "short": "知网",
+      "aliases": [
+        "cnki",
+        "知网",
+        "中国知网",
+        "中国期刊网"
+      ],
+      "home": "https://www.cnki.net/",
+      "entry": "https://kns.cnki.net/",
+      "entries": [
+        {
+          "label": "知网首页（新版）",
+          "url": "https://www.cnki.net/"
+        },
+        {
+          "label": "知网旧版入口",
+          "url": "https://www.cnki.net/old"
+        },
+        {
+          "label": "中国专利全文数据库（CIPD）",
+          "url": "http://epub.cnki.net/kns/brief/result.aspx?dbPrefix=CIPD"
+        }
+      ],
+      "lang": "zh",
+      "kind": "fulltext",
+      "access": "ip",
+      "access_label": "校园 IP / 学校账号",
+      "fulltext": "subscription",
+      "fulltext_label": "学校订阅 PDF/CAJ",
+      "adapter": "cnki",
+      "selectors_ref": "selectors.json",
+      "selectors": {},
+      "order": 2,
+      "selectable": true,
+      "default": true,
+      "note": "机构识别看 VPN 出口 IP；旧版与 CIPD 专利库走通用适配器（能力以探测为准）。"
+    },
+    {
+      "id": "sinomed",
+      "name": "SinoMed 中国生物医学文献服务系统",
+      "short": "SinoMed",
+      "aliases": [
+        "sinomed",
+        "中国生物医学文献服务系统",
+        "CBM",
+        "生物医学文献"
+      ],
+      "home": "http://www.sinomed.ac.cn/",
+      "entry": "http://www.sinomed.ac.cn/",
+      "entries": [
+        {
+          "label": "SinoMed 主站",
+          "url": "http://www.sinomed.ac.cn/"
+        }
+      ],
+      "lang": "zh",
+      "kind": "abstract",
+      "access": "ip",
+      "access_label": "校园 IP / 个人账号",
+      "fulltext": "link",
+      "fulltext_label": "题录为主，部分全文链接",
+      "adapter": "generic",
+      "selectors": {},
+      "order": 3,
+      "selectable": true,
+      "note": "中国医学科学院医学信息研究所；中英文题录，全文常跳到知网/万方等合作库。"
+    },
+    {
+      "id": "sciencedirect",
+      "name": "ScienceDirect（Elsevier）",
+      "short": "ScienceDirect",
+      "aliases": [
+        "sciencedirect",
+        "Elsevier",
+        "爱思唯尔"
+      ],
+      "home": "http://www.sciencedirect.com",
+      "entry": "http://www.sciencedirect.com",
+      "entries": [
+        {
+          "label": "ScienceDirect 主站",
+          "url": "http://www.sciencedirect.com"
+        }
+      ],
+      "lang": "en",
+      "kind": "fulltext",
+      "access": "ip",
+      "access_label": "校园 IP / 机构登录",
+      "fulltext": "subscription",
+      "fulltext_label": "学校订阅 PDF（未订阅显示 Get access）",
+      "adapter": "generic",
+      "selectors": {
+        "search_input": [
+          "input#qs",
+          "input[name='qs']",
+          "input[type='search']"
+        ],
+        "search_button": [
+          "button[aria-label*='Search']",
+          "button[type='submit']"
+        ],
+        "item_link": [
+          "a[href*='/science/article/']",
+          "h3 a[href*='/science/article/']"
+        ],
+        "pdf_button": [
+          "a[href*='pdfft']",
+          "a[href$='.pdf']",
+          "a[aria-label*='PDF']"
+        ]
+      },
+      "order": 4,
+      "selectable": true,
+      "note": "英文全文库；机构权限按校园网出口识别，未订阅文章只有摘要。"
+    },
+    {
+      "id": "scifinder-n",
+      "name": "CAS SciFindern",
+      "short": "SciFindern",
+      "aliases": [
+        "scifinder",
+        "scifinder-n",
+        "sci finder",
+        "cas scifinder"
+      ],
+      "home": "https://scifinder-n.cas.org/",
+      "entry": "https://scifinder-n.cas.org/",
+      "entries": [
+        {
+          "label": "CAS SciFindern 登录入口",
+          "url": "https://scifinder-n.cas.org/"
+        }
+      ],
+      "lang": "en",
+      "kind": "chemistry",
+      "access": "account",
+      "access_label": "CAS 个人账号（需学校开通）",
+      "fulltext": "subscription",
+      "fulltext_label": "订阅全文/专利链接",
+      "adapter": "generic",
+      "selectors": {},
+      "order": 5,
+      "selectable": true,
+      "note": "化学与专利检索；必须 CAS 账号登录，部分学校要求先在校园网注册。"
+    },
+    {
+      "id": "cas-methods",
+      "name": "CAS Analytical Methods",
+      "short": "CAS Methods",
+      "aliases": [
+        "analytical methods",
+        "cas methods",
+        "methods.cas.org"
+      ],
+      "home": "https://methods.cas.org",
+      "entry": "https://methods.cas.org",
+      "entries": [
+        {
+          "label": "CAS Analytical Methods 登录入口",
+          "url": "https://methods.cas.org"
+        }
+      ],
+      "lang": "en",
+      "kind": "chemistry",
+      "access": "account",
+      "access_label": "CAS 个人账号",
+      "fulltext": "subscription",
+      "fulltext_label": "方法全文（订阅）",
+      "adapter": "generic",
+      "selectors": {},
+      "order": 6,
+      "selectable": true,
+      "note": "分析方法库；与 SciFindern 同一个 CAS 账号体系。"
+    },
+    {
+      "id": "cas-formulus",
+      "name": "CAS Formulus",
+      "short": "CAS Formulus",
+      "aliases": [
+        "formulus",
+        "cas formulus",
+        "formulus.cas.org"
+      ],
+      "home": "https://formulus.cas.org",
+      "entry": "https://formulus.cas.org",
+      "entries": [
+        {
+          "label": "CAS Formulus 登录入口",
+          "url": "https://formulus.cas.org"
+        }
+      ],
+      "lang": "en",
+      "kind": "chemistry",
+      "access": "account",
+      "access_label": "CAS 个人账号",
+      "fulltext": "subscription",
+      "fulltext_label": "配方全文（订阅）",
+      "adapter": "generic",
+      "selectors": {},
+      "order": 7,
+      "selectable": true,
+      "note": "配方/剂型数据库；同样需要 CAS 账号，页面为 JS 应用，通用适配器只做尽力抓取。"
+    }
+  ]
+}

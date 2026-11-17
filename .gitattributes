@@ -1,0 +1,5 @@
+# 统一用 LF 保存，避免 Windows 上 CRLF/LF 来回转换导致工作区“假脏”
+* text=auto eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf

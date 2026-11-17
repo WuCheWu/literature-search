@@ -1,0 +1,68 @@
+{
+  "_说明": "CNKI 选择器候选。首次运行必须对照真实页面校准：把命中不了的那条删掉或补一条。脚本按顺序尝试，第一个命中即用。",
+  "home": {
+    "search_input": [
+      "input#txt_SearchText",
+      "input.search-input",
+      "div.search-box input[type='text']",
+      "textarea#txt_SearchText"
+    ],
+    "search_button": [
+      "input.search-btn",
+      "button.search-btn",
+      "div.search-btn"
+    ]
+  },
+  "result": {
+    "item_link": [
+      "a.fz14",
+      "div.result-table-list a.fz14",
+      "td.name a"
+    ],
+    "next_page": [
+      "a#PageNext",
+      "a.next"
+    ]
+  },
+  "detail": {
+    "title": [
+      "h1.title",
+      ".wx-tit h1",
+      ".brief h1"
+    ],
+    "authors": [
+      "#authorpart a",
+      "h3.author a",
+      ".author a"
+    ],
+    "source": [
+      "div.top-tip a",
+      "a#journalName",
+      "div.top-tip span"
+    ],
+    "top_tip": [
+      "div.top-tip",
+      ".top-tip"
+    ],
+    "abstract": [
+      "#ChDivSummary",
+      ".abstract-text",
+      "div#abstract"
+    ],
+    "keywords": [
+      ".keywords",
+      "p.keywords",
+      "#keyword a"
+    ],
+    "pdf_button": [
+      "#pdfDown",
+      "a#pdfDown",
+      "li.pdf-download a"
+    ],
+    "caj_button": [
+      "#cajDown",
+      "a#cajDown",
+      "li.caj-download a"
+    ]
+  }
+}

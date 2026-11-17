@@ -1,0 +1,53 @@
+{
+  "_说明": "复制为 config.json 后使用；换学校只改 vpn.portal、institution.name、institution.library_url。",
+  "vpn": {
+    "portal": "https://vpn.example.edu.cn/",
+    "client_dir": "C:\\Program Files (x86)\\Sangfor\\SSL\\EasyConnect",
+    "vnic_desc_match": "Sangfor SSL VPN",
+    "cnki_probe_route": ""
+  },
+  "institution": {
+    "name": "示例大学",
+    "library_url": "https://library.example.edu.cn/"
+  },
+  "databases": {
+    "pubmed": {
+      "enabled": true,
+      "retmax": 20,
+      "years": 5,
+      "email": ""
+    },
+    "cnki": {
+      "enabled": true,
+      "retmax": 20,
+      "years": 5
+    }
+  },
+  "browser": {
+    "channel": "msedge",
+    "profile_dir": "D:\\literature-search\\.lit-profile",
+    "headless": false,
+    "verify_wait_sec": 180,
+    "nav_timeout_sec": 45
+  },
+  "platforms": {
+    "cache_dir": "D:\\literature-search\\输出\\_平台能力",
+    "login_state_dir": "D:\\literature-search\\输出\\_平台登录",
+    "cache_ttl_days": 7,
+    "login_state_ttl_days": 30,
+    "probe_detail": true,
+    "wait_login_sec": 180,
+    "interval_sec": 2.5,
+    "limit": 20
+  },
+  "download": {
+    "max_per_run": 30,
+    "interval_sec": 3,
+    "timeout_sec": 90,
+    "retry": 1,
+    "min_bytes": 10240,
+    "selected_only": true,
+    "include_pending": false
+  },
+  "output_root": "D:\\literature-search\\输出"
+}
