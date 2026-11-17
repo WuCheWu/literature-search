@@ -26,7 +26,7 @@
 | pip 依赖 | — | `python -m pip install -r requirements.txt` · 国内慢加 `-i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com` | `python -c "import requests,openpyxl,playwright"` |
 | Microsoft Edge | 任意近期版本 | https://www.microsoft.com/zh-cn/edge/download （Win10/11 一般自带） | 能正常开网页 |
 | Playwright | 随 pip 装 | https://playwright.dev/python/docs/intro · **用 Edge 通道不用再下浏览器内核** | `python -c "import playwright"` |
-| Sangfor EasyConnect | 学校下发版 | 学校 VPN 门户：https://vpn.example.edu.cn/ （换学校改 `config.json` 的 `vpn.portal`） | 客户端显示「已连接」 |
+| VPN | 学校下发 | 用户自己预先连接好VPN并提前有过登录 | 客户端显示「已连接」 |
 | PowerShell | 5.1 | 系统自带 | `powershell -Command $PSVersionTable.PSVersion` |
 | CAJViewer | 可选 | https://cajviewer.cnki.net/ | 下载到 `.caj` 时用它打开 |
 
@@ -251,3 +251,9 @@ python scripts\run_all.py --school-list "D:\数据库清单.html" --keywords "�
 
 执行细节见 [`SKILL.md`](SKILL.md)，本次改动见 [`修改日志.md`](修改日志.md)。
 开始前先跑 `python scripts\doctor.py`。
+
+## 这是一个臭不要脸的赞助码
+
+如果对你有帮助，可以先收藏，如有反馈，请留言
+
+<img width="708" height="782" alt="赞助码" src="https://github.com/user-attachments/assets/db9c665a-08ed-44b1-b365-14f97ffc2010" />
