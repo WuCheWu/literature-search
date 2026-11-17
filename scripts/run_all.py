@@ -240,6 +240,8 @@ def _apply_platform_args(task: dict, args) -> dict:
     search["platforms"] = ids
     search["databases"] = [p for p in search["platforms"] if p in ("pubmed", "cnki")]
     search["custom_platforms"] = customs
+    if getattr(args, "vpn_channel", None):
+        task.setdefault("vpn", {})["channel"] = args.vpn_channel
     if getattr(args, "first_login", None):
         search["login_setup"] = {
             "status": args.first_login,
@@ -355,6 +357,9 @@ def main() -> int:
     parser.add_argument("--task", help="检索任务.json")
     parser.add_argument("--interactive", action="store_true", help="启动终端向导")
     parser.add_argument("--keywords", help="中文关键词，逗号分隔")
+    parser.add_argument("--vpn-channel", choices=["easyconnect", "other_client", "webvpn",
+                                                  "not_connected", "unknown"],
+                        help="VPN 连接方式（程序不代连，只按它验证）")
     parser.add_argument("--keywords-en", help="英文关键词，逗号分隔")
     parser.add_argument("--prompt", help="文献搜索提示词")
     parser.add_argument("--direction", help="筛查方向")
@@ -576,7 +581,8 @@ def main() -> int:
                 worst = max(worst, cnki_code)
                 lc.write_json(run_dir / "records_cnki.json", cnki_records)
                 if cnki_code == lc.EXIT_NEED_USER:
-                    return cnki_code
+                    log("[知网] 需要人工处理（登录/滑块），继续用已有记录出表；"
+                        "处理完可用原命令续跑")
 
         # Step 4.5 其他平台检索（SinoMed / ScienceDirect / CAS / 自定义网址）
         platform_pending = []
@@ -632,18 +638,23 @@ def main() -> int:
         # Step 6 下载（默认只下纳入）
         if task["search"]["download"] and not args.no_download:
             dl_cfg = cfg["download"]
-            dl_code, records = download_fulltext.run(
-                cfg, run_dir, log, None,
-                do_pubmed=pubmed_on, do_cnki=cnki_on and not entries,
-                do_platforms=bool(other_ids) and not entries,
-                selectors=selectors,
-                selected_only=bool(stats) and bool(dl_cfg.get("selected_only", True)),
-                include_pending=args.download_pending or bool(dl_cfg.get("include_pending", False)),
-                platforms_map=platforms_map,
-            )
+            try:
+                dl_code, records = download_fulltext.run(
+                    cfg, run_dir, log, None,
+                    do_pubmed=pubmed_on, do_cnki=cnki_on and not entries,
+                    do_platforms=bool(other_ids) and not entries,
+                    selectors=selectors,
+                    selected_only=bool(stats) and bool(dl_cfg.get("selected_only", True)),
+                    include_pending=args.download_pending or bool(dl_cfg.get("include_pending", False)),
+                    platforms_map=platforms_map,
+                )
+            except SystemExit as exc:
+                # 依赖缺失等致命退出在这里兜住：检索与筛选的成果不能丢
+                log(f"[下载] 下载阶段提前中止（退出码 {getattr(exc, 'code', 1)}），继续出表")
+                dl_code, records = lc.EXIT_PARTIAL, lc.read_records(run_dir)
             worst = max(worst, dl_code)
             if dl_code == lc.EXIT_NEED_USER:
-                return dl_code
+                log("[下载] 有平台需要人工处理，已先出表；处理完可单跑 download_fulltext.py 补下")
         else:
             log("[下载] 本次不下载全文")
 

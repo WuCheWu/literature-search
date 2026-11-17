@@ -103,6 +103,13 @@ def _try_unpaywall(session, doi: str, cfg, out_dir, rec, log) -> Path | None:
     return None
 
 
+def _has_playwright() -> bool:
+    """浏览器兜底是可选项：没装 playwright 就降级，不能拖垮整批下载与出表。"""
+    import importlib.util
+
+    return importlib.util.find_spec("playwright") is not None
+
+
 def _browser_pmc_batch(cfg: dict, jobs: list[dict], out_dir: Path, log, interval: float) -> int:
     """PMC 直连被 Cloudflare 403 时的浏览器兜底。
 
@@ -111,6 +118,10 @@ def _browser_pmc_batch(cfg: dict, jobs: list[dict], out_dir: Path, log, interval
     https://europepmc.org/api/getPdf?pmcid=PMCxxxxx 返回 200（%PDF）。
     """
     if not jobs:
+        return 0
+    if not _has_playwright():
+        log("[下载] 未安装 playwright，跳过 Europe PMC 浏览器兜底"
+            "（这些文献先记 仅摘要/需付费，装好后可单跑 download_fulltext.py 补下）")
         return 0
     done = 0
     pw, context, page = bu.open_context(cfg, log)
@@ -370,6 +381,9 @@ def run(cfg: dict, run_dir: Path, log, max_count: int | None = None,
             r for r in records
             if r.get("source_db") == "cnki" and _wanted(r, selected_only, include_pending)
         ]
+    if cnki_items and not _has_playwright():
+        log("[下载] 未安装 playwright，知网全文下载跳过（状态保留，装好后可单跑 download_fulltext.py 补下）")
+        cnki_items = []
     if cnki_items:
         pw, context, page = bu.open_context(cfg, log)
         try:
@@ -402,6 +416,9 @@ def run(cfg: dict, run_dir: Path, log, max_count: int | None = None,
             if r.get("source_db") not in ("pubmed", "cnki")
             and _wanted(r, selected_only, include_pending)
         ]
+    if platform_items and not _has_playwright():
+        log("[下载] 未安装 playwright，其他平台全文下载跳过（状态保留，装好后可单跑 download_fulltext.py 补下）")
+        platform_items = []
     if platform_items:
         by_source: dict[str, list[dict]] = {}
         for rec in platform_items:

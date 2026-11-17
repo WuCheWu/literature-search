@@ -57,6 +57,21 @@ QUESTIONNAIRE = {
     ),
     "questions": [
         {
+            "id": "vpn_channel",
+            "header": "VPN 通道",
+            "question": "你的学校 VPN 用哪种方式连？（程序不代连，只按你说的方法去验证）",
+            "required": True,
+            "type": "choice",
+            "options": [
+                {"label": "深信服 EasyConnect", "value": "easyconnect"},
+                {"label": "其他客户端（Cisco / OpenVPN 等）", "value": "other_client"},
+                {"label": "学校 WebVPN（在浏览器里）", "value": "webvpn"},
+                {"label": "还没连，我先去连", "value": "not_connected"},
+                {"label": "不确定", "value": "unknown"},
+            ],
+            "default": "not_connected",
+        },
+        {
             "id": "keywords",
             "header": "关键词",
             "question": "这次要检索哪些关键词？（中文，逗号分隔，至少 1 个）",
@@ -223,6 +238,69 @@ QUESTIONNAIRE = {
     ],
 }
 
+# ---------------------------------------------------------------- 询问协议
+# 取信息的顺序与方式：一次一题、每题带推荐答案、能查的事实自己查、未共识不动手。
+PROTOCOL = {
+    "mode": "grilling",
+    "rules": [
+        "一次一题：问完等回答，再问下一题；不要一次性甩整张问卷。",
+        "每题带推荐答案：先说「我建议……」，再给一句理由；用户可以直接采纳。",
+        "能查的事实自己查：config.json、platforms.json、vpn_check 结果、上次运行目录、"
+        "平台登录/探测缓存——只有「决策」才问用户。",
+        "未达成共识不动手：关键词、筛查方向、平台、登录状态、VPN 通道没齐之前不检索、不下载；"
+        "缺项一律停在退出码 2，不猜、不默认放行。",
+    ],
+    "order": [
+        "vpn_channel", "keywords", "keywords_en", "direction", "years",
+        "platforms", "login_setup", "limit", "relevance", "download",
+    ],
+    "lookup_first": [
+        "config.json 里已填的学校、门户、输出目录（有就不问）",
+        "platforms.json 注册表与上次探测/登录缓存（有就报现状，不重新问）",
+        "vpn_check 实测的客户端/网卡/路由（事实，不问用户）",
+        "上次运行目录里的 检索任务.json（续跑时复用，只问变化项）",
+    ],
+    "ask_only": [
+        "你学校叫什么、用什么方式连 VPN（程序不猜、不代连）",
+        "这次查什么、只保留什么样的文献（筛查方向必须由用户给）",
+        "要不要全文、有没有平台的账号（账号密码永远由用户自己输）",
+    ],
+}
+
+WHY = {
+    "vpn_channel": "连 VPN 的方式决定预检怎么验；程序只检测、不启动客户端、不碰账号密码",
+    "keywords": "没有关键词就没有检索式，必须由用户给",
+    "keywords_en": "词表覆盖不到的主题没有英文就会拼出空检索式，宁可补一次",
+    "search_prompt": "一句话研究问题，写进任务供判定参考，不填也能跑但相关性会差一些",
+    "direction": "逐篇纳入/排除的硬规则，缺了只能按关键词匹配，结果会不可信",
+    "include": "命中这些要点加分；不填就从方向与关键词自动识别",
+    "exclude": "命中标题/关键词直接排除；比事后人工删更省事",
+    "must_have": "缺它直接排除，用来卡住「必须含某物种/方法」这类硬条件",
+    "years": "默认近 5 年，用户说「不限」时改 0",
+    "platforms": "默认 PubMed + 知网；学校订阅清单里有别的库再加",
+    "login_setup": "没登录过的平台打开只有登录页，先问清能少跑一趟",
+    "limit": "每库 20 条是准确率与耗时的平衡点，上限 50",
+    "relevance": "标准档：主题相关且方法/指标对得上；严格档会把方法不同的也筛掉",
+    "download": "默认只下「纳入」；待定/排除不下，省时间也少惹付费墙",
+    "max_items": "纳入上限，超出转待定，避免一次下太多",
+    "school_list": "给一次清单就能知道你学校有哪些库，省得逐个试",
+    "custom_urls": "清单里没认出的网址需要用户确认是不是学校订阅的库",
+    "login_pending": "只列需要首次登录的平台，其余按已就绪处理",
+}
+
+
+def _recommendation(item: dict) -> str:
+    """每题给一个可直接采纳的推荐答案。"""
+    if item.get("default") is not None:
+        return str(item["default"])
+    return str(item.get("example") or "")
+
+
+for _q in QUESTIONNAIRE["questions"]:
+    _q.setdefault("recommended", _recommendation(_q))
+    _q.setdefault("why", WHY.get(_q["id"], ""))
+QUESTIONNAIRE["protocol"] = PROTOCOL
+
 
 # ---------------------------------------------------------------- 基础工具
 
@@ -368,6 +446,11 @@ def normalize_task(data: dict) -> dict:
     preset = relevance_preset(relevance)
 
     search = dict(data.get("search") or {})
+    vpn_raw = dict(data.get("vpn") or {})
+    vpn_channel = str(vpn_raw.get("channel") or search.get("vpn_channel") or "").strip().lower()
+    if vpn_channel not in ("easyconnect", "other_client", "webvpn", "not_connected", "unknown"):
+        vpn_channel = "unknown"
+    vpn_block = {"channel": vpn_channel, "note": str(vpn_raw.get("note") or "").strip()}
     default_years = _int_or(search.get("years"), 5)
     years_min = _int_or(
         search.get("years_min") or scr.get("years_min"),
@@ -447,6 +530,7 @@ def normalize_task(data: dict) -> dict:
     task = {
         "version": 1,
         "created_at": str(data.get("created_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        "vpn": vpn_block,
         "keywords": keywords,
         "keywords_en": keywords_en[: len(keywords)],
         "search_prompt": str(data.get("search_prompt") or "").strip(),
@@ -490,6 +574,7 @@ def build_from_flags(args) -> dict:
         "years_max": args.years_max,
         "limit": args.limit,
         "download": not args.no_download,
+        "vpn_channel": getattr(args, "vpn_channel", None),
     }
     platform_args = _as_list(getattr(args, "platforms", "") or "")
     if platform_args:
@@ -628,6 +713,15 @@ def print_task(task: dict) -> None:
     platform_names = [platform_label(pid, task) for pid in
                       (search.get("platforms") or search.get("databases") or [])]
     print(f"  检索平台    ：{'、'.join(platform_names)}   每库条数：{search['limit']}")
+    channel = str((task.get("vpn") or {}).get("channel") or "unknown")
+    channel_label = {
+        "easyconnect": "深信服 EasyConnect",
+        "other_client": "其他客户端（Cisco/OpenVPN 等）",
+        "webvpn": "学校 WebVPN（浏览器内）",
+        "not_connected": "还没连（程序不代连，先连上再实测）",
+        "unknown": "未确认（按实测结果判断）",
+    }.get(channel, "未确认")
+    print(f"  VPN 通道    ：{channel_label}")
     login_setup = search.get("login_setup") or {}
     login_status = login_setup.get("status") or "unknown"
     login_text = {
@@ -857,6 +951,9 @@ def main() -> int:
     parser.add_argument("--from-json", help="从草稿 JSON 读取并规范化")
     parser.add_argument("--print-questionnaire", action="store_true", help="打印问题清单 JSON 后退出")
     parser.add_argument("--keywords", help="中文关键词，逗号分隔")
+    parser.add_argument("--vpn-channel", choices=["easyconnect", "other_client", "webvpn",
+                                                  "not_connected", "unknown"],
+                        help="VPN 连接方式（程序不代连，只按它验证）")
     parser.add_argument("--keywords-en", help="英文关键词，逗号分隔（与中文一一对应）")
     parser.add_argument("--prompt", help="文献搜索提示词")
     parser.add_argument("--direction", help="筛查方向")

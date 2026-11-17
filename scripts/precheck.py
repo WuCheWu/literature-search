@@ -53,12 +53,13 @@ def confirm_interactively(facts: dict) -> tuple[bool, bool, str]:
     """两个问题都必须回答 y，才认为用户确认。"""
     print("\n=== 第 2 步：请本人确认（两项都要是） ===")
     print("  说明：知网的机构识别依靠 VPN 出口 IP，不需要在知网登录个人账号；")
-    print("        「学校账号」指 VPN 客户端与图书馆入口使用的本人账号。")
+    print("        「学校账号」指 VPN 客户端（EasyConnect / Cisco / WebVPN 等）与图书馆入口使用的本人账号。")
     if not sys.stdin.isatty():
         print("  ! 当前会话不可交互，无法取得人工确认。")
         return False, False, "non-interactive"
 
-    vpn_ok = _ask_yes("\n  ① EasyConnect 现在显示「已连接」，且用的是你本人的学校 VPN 账号？")
+    vpn_ok = _ask_yes("\n  ① 你连接学校 VPN 的那个工具（或浏览器里的 WebVPN）现在显示「已连接」，"
+                      "用的是你本人的账号？")
     if vpn_ok is None:
         return False, False, "eof"
     if not vpn_ok:

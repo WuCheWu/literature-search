@@ -26,7 +26,7 @@
 | pip 依赖 | — | `python -m pip install -r requirements.txt` · 国内慢加 `-i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com` | `python -c "import requests,openpyxl,playwright"` |
 | Microsoft Edge | 任意近期版本 | https://www.microsoft.com/zh-cn/edge/download （Win10/11 一般自带） | 能正常开网页 |
 | Playwright | 随 pip 装 | https://playwright.dev/python/docs/intro · **用 Edge 通道不用再下浏览器内核** | `python -c "import playwright"` |
-| VPN | 学校下发 | 用户自己预先连接好VPN并提前有过登录 | 客户端显示「已连接」 |
+| Sangfor EasyConnect | 学校下发版 | 学校 VPN 门户：https://vpn.example.edu.cn/ （换学校改 `config.json` 的 `vpn.portal`） | 客户端显示「已连接」 |
 | PowerShell | 5.1 | 系统自带 | `powershell -Command $PSVersionTable.PSVersion` |
 | CAJViewer | 可选 | https://cajviewer.cnki.net/ | 下载到 `.caj` 时用它打开 |
 
@@ -63,6 +63,14 @@ doctor.py —通过→ run_all.py
                  ├ Step 8 生成 文献清单.xlsx + 文献列表.md
                  └ Step 9 汇报（数字与 Excel、文件数必须一致）
 ```
+
+### 它怎么问你（一次一题，带推荐答案）
+
+- **一次只问一个**，你答完再问下一个；不甩整张问卷。
+- **每题先给推荐答案**（"我建议近 5 年、每库 20 条"），你可以直接采纳，也可以改。
+- **能自己查的不问你**：`config.json` 里已有的学校/门户、平台清单、上次运行目录、VPN 实测结果。
+- **你没确认就不开跑**：关键词、筛查方向、平台、登录状态、VPN 通道缺一项，停在退出码 2。
+- 问题清单与推荐答案：`python scripts\intake.py --print-questionnaire`（每题带 `recommended` 与 `why`）。
 
 ### Agent 决策规则（5 条）
 
@@ -243,14 +251,3 @@ python scripts\run_all.py --school-list "D:\数据库清单.html" --keywords "�
 
 执行细节见 [`SKILL.md`](SKILL.md)，本次改动见 [`修改日志.md`](修改日志.md)。
 开始前先跑 `python scripts\doctor.py`。
-
-## 这是一个臭不要脸的赞助码
-
-如果对你有帮助，可以先收藏，如有反馈，请留言
-
-<img width="708" height="782" alt="赞助码" src="https://github.com/user-attachments/assets/db9c665a-08ed-44b1-b365-14f97ffc2010" />
-
-
-
-
-
