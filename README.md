@@ -243,3 +243,11 @@ python scripts\run_all.py --school-list "D:\数据库清单.html" --keywords "�
 
 执行细节见 [`SKILL.md`](SKILL.md)，本次改动见 [`修改日志.md`](修改日志.md)。
 开始前先跑 `python scripts\doctor.py`。
+
+##这是一个臭不要脸的赞助码
+<img width="708" height="782" alt="赞助码" src="https://github.com/user-attachments/assets/db9c665a-08ed-44b1-b365-14f97ffc2010" />
+如果对你有帮助，可以先收藏。
+
+
+
+
