@@ -68,6 +68,7 @@ import platform_search  # noqa: E402
 import platforms as pf  # noqa: E402
 import precheck  # noqa: E402
 import probe_platform  # noqa: E402
+import vpn_check  # noqa: E402
 import pubmed_search  # noqa: E402
 import screen  # noqa: E402
 
@@ -242,6 +243,12 @@ def _apply_platform_args(task: dict, args) -> dict:
     search["custom_platforms"] = customs
     if getattr(args, "vpn_channel", None):
         task.setdefault("vpn", {})["channel"] = args.vpn_channel
+    if getattr(args, "keywords_synonyms", None):
+        task["keywords_synonyms"] = intake._parse_terms_en(args.keywords_synonyms)
+    if getattr(args, "required_hits", None) is not None:
+        scr = task.setdefault("screening", {})
+        available = len(scr.get("include") or [])
+        scr["required_hits"] = max(1, min(int(args.required_hits), available)) if available else int(args.required_hits)
     if getattr(args, "first_login", None):
         search["login_setup"] = {
             "status": args.first_login,
@@ -361,10 +368,15 @@ def main() -> int:
                                                   "not_connected", "unknown"],
                         help="VPN 连接方式（程序不代连，只按它验证）")
     parser.add_argument("--keywords-en", help="英文关键词，逗号分隔")
+    parser.add_argument("--keywords-synonyms",
+                        help='关键词同义词/学名："斑马鱼=danio rerio,zebrafish; 微塑料=microplastics"')
+    parser.add_argument("--required-hits", type=int, default=None,
+                        help="纳入所需方向要点数（默认 5，超过要点数时封顶）")
     parser.add_argument("--prompt", help="文献搜索提示词")
     parser.add_argument("--direction", help="筛查方向")
     parser.add_argument("--include", help="纳入要点")
     parser.add_argument("--exclude", help="排除要点")
+    parser.add_argument("--terms-en", help='筛查要点英文对照："肠道菌群=gut microbiota; 炎症=inflammation"')
     parser.add_argument("--must", help="必含条件")
     parser.add_argument("--prefer", help="加分项")
     parser.add_argument("--doc-exclude", help="排除文献类型")
@@ -400,6 +412,8 @@ def main() -> int:
     parser.add_argument("--refresh", action="store_true", help="忽略已有记录重新检索")
     parser.add_argument("--yes", action="store_true", help="跳过检索式确认")
     parser.add_argument("--confirm-vpn", action="store_true", help="已确认 VPN 已连接")
+    parser.add_argument("--allow-vpn-detect", action="store_true",
+                        help="用户已允许运行 PowerShell 检测 VPN（未允许则不检测、不检索）")
     parser.add_argument("--confirm-account", action="store_true", help="已确认学校账号已登录")
     parser.add_argument("--skip-institution", action="store_true", help="跳过机构身份实测")
     parser.add_argument("--skip-vpn", action="store_true", help="跳过检索前确认（仅调试）")
@@ -423,6 +437,11 @@ def main() -> int:
     log = lc.RunLog(run_dir / "日志" / "run.log")
     lc.write_json(run_dir / "检索任务.json", task)
     intake.print_task(task)
+    _inc = task["screening"].get("include") or []
+    _req = int(task["screening"].get("required_hits") or 0)
+    if _inc and len(_inc) < 5:
+        print(f"[筛选] 方向要点只有 {len(_inc)} 个，硬门槛按 {_req} 执行；"
+              "要按「至少 5 个」需补充方向要点或英文对照")
     log(f"[任务] 关键词={'、'.join(task['keywords'])} 方向={task['screening']['direction'][:40]!r} "
         f"年限={task['screening']['years_min']}-{task['screening']['years_max']} "
         f"相关度={task['screening']['relevance']} 纳入线={task['screening']['min_score']} "
@@ -500,17 +519,19 @@ def main() -> int:
 
         # Step 2 VPN + 学校账号确认（硬门槛）
         pc_info: dict = {}
-        if not args.skip_vpn:
-            pc_code, pc_info = precheck.run(
-                cfg, run_dir, plan.get("cnki_plain") or keyword, log, selectors,
-                assume_confirmed=args.confirm_vpn and args.confirm_account,
-                skip_institution=args.skip_institution or not cnki_on,
-            )
-            if pc_code != lc.EXIT_OK:
-                log("[预检] 未通过，终止（不检索、不下载、不生成清单）")
-                return lc.EXIT_NEED_USER
-        else:
-            log("[预检] 已按 --skip-vpn 跳过（正式流程不应使用；账号未确认）")
+        if args.skip_vpn:
+            log("[预检] --skip-vpn 已废除：未确认 VPN 不允许检索")
+            print("\n[配置错误] 安全策略：检测不到 VPN 接入时不允许检索，--skip-vpn 不再可用。")
+            return lc.EXIT_CONFIG
+        pc_code, pc_info = precheck.run(
+            cfg, run_dir, plan.get("cnki_plain") or keyword, log, selectors,
+            assume_confirmed=args.confirm_vpn and args.confirm_account,
+            skip_institution=args.skip_institution or not cnki_on,
+            allow_detect=args.allow_vpn_detect,
+        )
+        if pc_code != lc.EXIT_OK:
+            log("[预检] 未通过，终止（不检索、不下载、不生成清单）")
+            return lc.EXIT_NEED_USER
 
         # Step 2.5 平台首次登录/机构登录设置（规则 7）
         login_setup = task["search"].get("login_setup") or {}
@@ -530,11 +551,16 @@ def main() -> int:
 
         # Step 2.6 平台能力探测（能不能检索、能不能下载）
         if other_ids and not args.no_probe and task["search"].get("probe", True):
-            caps = probe_platform.ensure(
-                cfg, other_ids, run_dir, log,
-                plan.get("cnki_plain") or keyword, platforms_map,
-                refresh=args.refresh_probe, wait_login=args.wait_login,
-            )
+            try:
+                caps = probe_platform.ensure(
+                    cfg, other_ids, run_dir, log,
+                    plan.get("cnki_plain") or keyword, platforms_map,
+                    refresh=args.refresh_probe, wait_login=args.wait_login,
+                )
+            except SystemExit as exc:
+                log(f"[探测] 探测阶段中止（退出码 {getattr(exc, 'code', 1)}），"
+                    "跳过能力探测继续检索；装好 playwright 后可单跑 probe_platform.py")
+                caps = {}
             for pid in other_ids:
                 cap = caps.get(pid) or {}
                 log(f"[探测] {cap.get('name') or pid} → {cap.get('verdict_label') or '未探测'}")
@@ -548,6 +574,7 @@ def main() -> int:
 
         # Step 3 PubMed 检索
         if pubmed_on:
+            vpn_check.require(cfg, log, "PubMed 检索前")
             cached = _load_or_search(cfg, "records_pubmed.json", run_dir, args.refresh)
             if cached is not None and not entries:
                 log(f"[PubMed] 断点续跑，复用 {len(cached)} 条")
@@ -569,6 +596,7 @@ def main() -> int:
 
         # Step 4 知网检索
         if cnki_on and not entries:
+            vpn_check.require(cfg, log, "知网检索前")
             cached_cnki = _load_or_search(cfg, "records_cnki.json", run_dir, args.refresh)
             if cached_cnki is not None:
                 log(f"[知网] 断点续跑，复用 {len(cached_cnki)} 条")
@@ -587,6 +615,7 @@ def main() -> int:
         # Step 4.5 其他平台检索（SinoMed / ScienceDirect / CAS / 自定义网址）
         platform_pending = []
         if other_ids and not entries:
+            vpn_check.require(cfg, log, "其他平台检索前")
             for pid in other_ids:
                 platform = platforms_map.get(pid) or {}
                 name = platform.get("short") or pid
@@ -632,11 +661,22 @@ def main() -> int:
             scr_code, _ = screen.run(run_dir, task, log, judgements)
             worst = max(worst, scr_code)
             stats = screen._stats(lc.read_records(run_dir))
+            downgraded = sum(
+                1 for r in lc.read_records(run_dir)
+                if "未达硬规则" in str(r.get("选择依据") or "")
+            )
+            if downgraded:
+                log(f"[筛选] {downgraded} 条因方向要点不足降为待定")
+                print(f"\n[需要你决定] {downgraded} 条已达标分数但因「方向要点命中不足」降为待定。可三选一：")
+                print("  A. 降低门槛：加 --required-hits 3 重跑（只重筛，不重检索）")
+                print("  B. 补充要点：在任务里补 include/terms_en（方向要点越多越准）")
+                print("  C. 收窄方向：把检索方向写得更具体，减少边缘文献")
         else:
             log("[筛选] 已按 --no-screen 跳过（清单将没有判定与选择依据）")
 
         # Step 6 下载（默认只下纳入）
         if task["search"]["download"] and not args.no_download:
+            vpn_check.require(cfg, log, "下载前")
             dl_cfg = cfg["download"]
             try:
                 dl_code, records = download_fulltext.run(

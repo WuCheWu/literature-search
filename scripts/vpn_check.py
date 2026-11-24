@@ -167,6 +167,92 @@ GUIDE = (
 )
 
 
+PAUSE_TEXT = (
+    "\n" + "=" * 62 + "\n"
+    "【需要你处理】未检测到 VPN 接入，已停止，没有检索任何网络资源。\n"
+    "判定：{reasons}\n"
+    "请：\n"
+    "  1) 打开你学校的 VPN 客户端（EasyConnect / 其他）并连上；\n"
+    "  2) 确认客户端显示「已连接」；\n"
+    "  3) 回来重跑（已检索/已下载的结果会保留）。\n"
+    "=" * 62
+)
+
+MIDRUN_TEXT = (
+    "\n" + "=" * 62 + "\n"
+    "【需要你处理】检测到 VPN 接入可能已断开（{stage}），已停止检索。\n"
+    "判定：{reasons}\n"
+    "请重新连接 VPN 后重跑；已完成的记录与下载不会丢。\n"
+    "=" * 62
+)
+
+
+def check(cfg: dict) -> tuple[bool, list[str]]:
+    """VPN 是否可用。
+
+    配置 `vpn.client` 不是 easyconnect 时（Cisco / WebVPN / 其他），客户端检测不适用，
+    返回通过；断线改由请求失败识别。
+    """
+    client = str(((cfg or {}).get("vpn") or {}).get("client") or "easyconnect").strip().lower()
+    if client in ("other", "webvpn", "none"):
+        return True, [f"按配置跳过客户端检测（vpn.client={client}）"]
+    try:
+        facts = collect_facts(cfg)
+    except Exception as exc:  # noqa: BLE001
+        return False, [f"预检执行失败：{type(exc).__name__}: {exc}"]
+    return judge(facts)
+
+
+def require(cfg: dict, log=None, stage: str = "检索前") -> None:
+    """硬闸：不通过就带提示退出码 2，调用方不必再判断。"""
+    ok, reasons = check(cfg)
+    if ok:
+        return
+    # 「…检索前 / 下载前」= 还没开始，用未检测到文案；「…中 / …后」= 中途断线
+    midrun = ("中" in stage) or ("后" in stage) or ("中断" in stage)
+    template = MIDRUN_TEXT if midrun else PAUSE_TEXT
+    text = template.format(reasons="；".join(reasons) or "未知", stage=stage)
+    if log:
+        log(f"[VPN] {stage} 未通过：{'；'.join(reasons)}")
+    print(text, file=sys.stderr)
+    sys.exit(lc.EXIT_NEED_USER)
+
+
+DETECT_PROMPT = (
+    "\n" + "-" * 62 + "\n"
+    "需要调用 PowerShell 读取网卡与进程，检测 VPN 状态。\n"
+    "（只读，不改任何配置；拒绝则本次不检测、也不检索。）\n"
+    + "-" * 62
+)
+
+DETECT_NEED_USER = (
+    "\n【需要你处理】检测 VPN 需要运行 PowerShell 读取网卡与进程。\n"
+    "请回复「允许检测 VPN」，再用 --allow-vpn-detect 重跑；\n"
+    "未获允许时不会检测，也不会检索任何网络资源。"
+)
+
+
+def confirm_detect(force: bool = False, log=None) -> None:
+    """检测前要一次显式许可；拒绝或无法询问 → 退出码 2。"""
+    if force:
+        if log:
+            log("[VPN] 已按 --allow-vpn-detect 允许运行检测")
+        return
+    if not sys.stdin.isatty():
+        print(DETECT_NEED_USER, file=sys.stderr)
+        sys.exit(lc.EXIT_NEED_USER)
+    print(DETECT_PROMPT)
+    try:
+        raw = input("  输入 y 允许本次检测，直接回车拒绝：").strip().lower()
+    except EOFError:
+        raw = ""
+    if raw not in ("y", "yes", "是", "1"):
+        print(DETECT_NEED_USER, file=sys.stderr)
+        sys.exit(lc.EXIT_NEED_USER)
+    if log:
+        log("[VPN] 用户已允许运行 PowerShell 检测")
+
+
 def run(cfg: dict, as_json: bool = False) -> tuple[int, dict]:
     facts = collect_facts(cfg)
     ok, reasons = judge(facts)
@@ -189,9 +275,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="VPN 与环境预检（只报事实，不做最终判定）")
     parser.add_argument("--config", help="配置文件路径，默认 <技能根>/config.json")
     parser.add_argument("--json", action="store_true", help="只输出 JSON")
+    parser.add_argument("--yes", action="store_true", help="已获用户允许，直接运行检测")
     args = parser.parse_args()
     lc.print_env()
     cfg = lc.load_config(args.config)
+    confirm_detect(args.yes)
     code, _ = run(cfg, args.json)
     return code
 

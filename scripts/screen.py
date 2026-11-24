@@ -17,7 +17,7 @@
     --json              打印统计
 退出码：0 成功 / 1 无记录 / 3 配置或任务错误
 依赖：标准库 + plan_query 的领域词表（中英互译）
-说明：中文关键词/要点会自动扩展英文同义词（斑马鱼 ↔ zebrafish），否则英文文献会被漏判。
+说明：中文关键词按任务里的中英对照扩展（用户给的英文），不再依赖内置领域词表。
       「选择依据」必须能复述出命中了什么、为什么收/不收。
 """
 from __future__ import annotations
@@ -33,7 +33,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import intake  # noqa: E402
 import litcommon as lc  # noqa: E402
-import plan_query  # noqa: E402
 
 FIELD_ORDER = ("标题", "关键词", "摘要")
 LOC_WEIGHT = {"标题": 1.0, "关键词": 0.85, "摘要": 0.6}
@@ -43,23 +42,13 @@ DECISION_ORDER = {"纳入": 0, "待定": 1, "排除": 2}
 
 # 筛选常用词的中英对照（词表里没有的补充在这里）
 EXTRA_VOCAB = {
+    # 只留文献类型词（与学科无关）；领域词一律由用户任务里的中英关键词对提供
     "综述": ["review", "systematic review", "meta-analysis", "research progress"],
     "研究进展": ["research progress", "advances"],
     "述评": ["commentary", "editorial"],
     "会议": ["conference", "proceedings", "symposium"],
     "征稿": ["call for papers"],
     "稿约": ["instructions for authors"],
-    "吸附": ["adsorption", "adsorb", "adsorbent"],
-    "降解": ["degradation", "degrade", "biodegradation"],
-    "生态风险": ["ecological risk", "risk assessment"],
-    "肠道菌群": ["gut microbiota", "gut microbiome", "intestinal flora", "intestinal microbiota"],
-    "消化": ["digestion", "digestive", "digestive enzyme"],
-    "炎症": ["inflammation", "inflammatory"],
-    "抗氧化": ["antioxidant", "antioxidative"],
-    "氧化应激": ["oxidative stress"],
-    "肠道屏障": ["intestinal barrier", "gut barrier"],
-    "肝脏": ["liver", "hepatic"],
-    "毒性": ["toxicity", "toxic"],
 }
 
 
@@ -85,8 +74,8 @@ def _unique(terms: list[str]) -> list[str]:
     return out
 
 
-def _build_vocab() -> dict[str, list[str]]:
-    """中英双向词表：复用 plan_query 的领域词表，再补筛选常用词。"""
+def _build_vocab(pairs: list[tuple[str, list[str]]] | None = None) -> dict[str, list[str]]:
+    """中英双向对照：只来自用户任务里的关键词对，外加文献类型词。"""
     table: dict[str, list[str]] = {}
 
     def link(left: str, right: str) -> None:
@@ -100,13 +89,30 @@ def _build_vocab() -> dict[str, list[str]]:
         if _norm(left) not in {_norm(x) for x in table[_norm(right)]}:
             table[_norm(right)].append(left)
 
-    for concept in plan_query.CONCEPTS:
-        for en in concept.get("en") or []:
-            link(concept["cn"], en)
+    for cn, ens in pairs or []:
+        for en in ens:
+            link(cn, en)
     for cn, ens in EXTRA_VOCAB.items():
         for en in ens:
             link(cn, en)
     return table
+
+
+def _vocab_from_task(task: dict) -> dict[str, list[str]]:
+    """用任务里的中英对照建表：关键词对 + 筛查要点的英文对照。
+
+    都没有时只按字面匹配（中文词命中中文题录，英文词命中英文题录）。
+    """
+    pairs: list[tuple[str, list[str]]] = []
+    for cn, en in zip(task.get("keywords") or [], task.get("keywords_en") or []):
+        terms = [t.strip() for t in re.split(r"[,，、;；/|]", str(en or "")) if t.strip()]
+        if terms:
+            pairs.append((str(cn), terms))
+    for cn, ens in ((task.get("screening") or {}).get("terms_en") or {}).items():
+        terms = [str(t).strip() for t in (ens or []) if str(t).strip()]
+        if str(cn).strip() and terms:
+            pairs.append((str(cn), terms))
+    return _build_vocab(pairs)
 
 
 VOCAB = _build_vocab()
@@ -227,6 +233,12 @@ def screen_record(rec: dict, task: dict) -> dict:
     must_hits, must_variants = _hits(must_terms, fields)
     must_missing = [t for t in must_terms if t not in must_hits]
 
+    # 方向要点硬门槛：默认 5 个，最多不超过用户给的要点数
+    required_hits = 0
+    if inc_terms:
+        required_hits = int(scr.get("required_hits") or 5)
+        required_hits = max(1, min(required_hits, len(inc_terms)))
+
     hard: list[str] = []
     soft: list[str] = []
     for term, locs in exc_hits.items():
@@ -285,6 +297,11 @@ def screen_record(rec: dict, task: dict) -> dict:
     else:
         decision = "排除"
 
+    short_hits = bool(required_hits and len(inc_hits) < required_hits)
+    downgraded = decision == "纳入" and short_hits
+    if downgraded:
+        decision = "待定"
+
     # ---- 选择依据：同时说清关键词与筛查方向的匹配关系
     segments: list[str] = []
     if kw_hits:
@@ -312,6 +329,11 @@ def screen_record(rec: dict, task: dict) -> dict:
         segments.append(f"标注年份 {year} 晚于检索上限（多为网络首发，未据此排除）")
     if empty_abstract and decision != "排除":
         segments.append("摘要缺失，信息不足")
+    if required_hits:
+        segments.append(
+            f"方向要点命中 {len(inc_hits)}/{required_hits}"
+            f"（纳入硬规则 ≥{required_hits}" + ("，未达硬规则已降为待定" if downgraded else "") + "）"
+        )
     segments.append(f"匹配度 {score}/100")
     reason = "；".join(segments) + f" → 判定：{decision}"
 
@@ -413,6 +435,11 @@ def _stats(records: list[dict]) -> dict:
 
 
 def run(run_dir: Path, task: dict, log=None, judgements: list[dict] | None = None) -> tuple[int, list[dict]]:
+    global VOCAB
+    VOCAB = _vocab_from_task(task)
+    if log and not ((task.get("screening") or {}).get("terms_en")):
+        log("[筛选] 未提供「筛查要点英文对照」：中文要点匹配不到英文摘要，"
+            "英文文献只能按关键词判定，纳入/排除可能偏宽")
     records = lc.read_records(run_dir)
     if not records:
         if log:

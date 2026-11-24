@@ -46,9 +46,6 @@ RELEVANCE = {
     "strict": {"label": "严格（只要高度相关，可接受漏检）", "min_score": 70, "band": 10},
 }
 DEFAULT_DOC_EXCLUDE = ["会议", "征稿", "稿约", "Erratum", "Correction", "撤稿"]
-# 这些词在方向上几乎必然出现，作为纳入要点会稀释评分，识别时跳过
-GENERIC_CONCEPTS = {"暴露", "生长", "行为", "组织学", "肠道", "菌群", "毒性"}
-
 QUESTIONNAIRE = {
     "title": "文献检索任务采集",
     "intro": (
@@ -82,10 +79,21 @@ QUESTIONNAIRE = {
         {
             "id": "keywords_en",
             "header": "英文关键词",
-            "question": "对应的英文关键词？（与中文一一对应，用于 PubMed；不知道可留空由词表补）",
+            "question": "对应的英文关键词？（与中文一一对应，用于 PubMed；必须用生物/化学专业术语，程序不自动翻译，不填则 PubMed 检索式为空）",
             "required": False,
             "type": "text",
             "example": "zebrafish, microplastic",
+        },
+        {
+            "id": "keywords_synonyms",
+            "header": "同义词/学名",
+            "question": (
+                "每个关键词还有哪些写法？（选填；用于把漏掉的文献捞回来，如复数、学名、旧称。"
+                "格式：中文=英文1,英文2。这些词会以 OR 并入检索式）"
+            ),
+            "required": False,
+            "type": "text",
+            "example": "斑马鱼=danio rerio,zebrafish; 微塑料=microplastics,nanoplastic*",
         },
         {
             "id": "search_prompt",
@@ -102,6 +110,25 @@ QUESTIONNAIRE = {
             "required": True,
             "type": "text",
             "example": "斑马鱼活体暴露实验，关注肠道菌群、消化酶、炎症与抗氧化指标；排除材料吸附/降解与生态风险评估",
+        },
+        {
+            "id": "terms_en",
+            "header": "英文对照",
+            "question": (
+                "上面这些要点/排除词在英文文献里怎么写？（选填；必须用生物/化学专业术语；"
+                "格式：中文=英文1,英文2;中文2=英文3。不填则英文文献只能按关键词匹配，可能漏排除）"
+            ),
+            "required": False,
+            "type": "text",
+            "example": "肠道菌群=gut microbiota,gut microbiome; 炎症=inflammation; 吸附=adsorption; 降解=degradation",
+        },
+        {
+            "id": "required_hits",
+            "header": "方向要点门槛",
+            "question": "至少命中几个方向要点才算「纳入」？（不足的转「待定」；默认 5，超过你给的要点数时按要点数封顶）",
+            "required": False,
+            "type": "text",
+            "default": "5",
         },
         {
             "id": "include",
@@ -270,9 +297,12 @@ PROTOCOL = {
 WHY = {
     "vpn_channel": "连 VPN 的方式决定预检怎么验；程序只检测、不启动客户端、不碰账号密码",
     "keywords": "没有关键词就没有检索式，必须由用户给",
-    "keywords_en": "词表覆盖不到的主题没有英文就会拼出空检索式，宁可补一次",
+    "keywords_en": "PubMed 只能用英文检索；要求生物/化学专业术语，程序不内置词表、不自动翻译，缺了就停下问",
+    "keywords_synonyms": "复数/学名/旧称靠模型记忆容易漏，交给用户最准；会以 OR 并入检索式",
+    "required_hits": "防止只命中关键词、没命中方向的文献混进纳入；要点不足时降到待定并提示放宽",
     "search_prompt": "一句话研究问题，写进任务供判定参考，不填也能跑但相关性会差一些",
     "direction": "逐篇纳入/排除的硬规则，缺了只能按关键词匹配，结果会不可信",
+    "terms_en": "中文要点匹配不到英文摘要；英文对照由用户给，程序不做领域翻译",
     "include": "命中这些要点加分；不填就从方向与关键词自动识别",
     "exclude": "命中标题/关键词直接排除；比事后人工删更省事",
     "must_have": "缺它直接排除，用来卡住「必须含某物种/方法」这类硬条件",
@@ -373,33 +403,63 @@ def relevance_preset(name: str) -> dict:
 
 
 def suggest_include(direction: str, keywords: list[str]) -> list[str]:
-    """从筛查方向里识别领域概念，作为「纳入要点」的默认值。
+    """不再从内置词表猜「纳入要点」：由用户在问答里给，留空就退回关键词。
 
-    例：「关注肠道菌群、消化功能、炎症与抗氧化指标」→ 肠道菌群/消化/炎症/抗氧化。
-    只做词表匹配，不猜词；识别不到就返回空，由调用方退回关键词。
+    以前这里拿领域词表去方向里匹配，等于把某个实验室的选题塞进通用技能；
+    现在只保留用户提供的词，纳入要点缺省等于关键词。
     """
-    import plan_query  # 延迟导入，避免与 screen 形成环
-
-    text = str(direction or "")
-    if not text:
-        return []
-    found: list[str] = []
-    for concept in sorted(plan_query.CONCEPTS, key=lambda c: len(c["cn"]), reverse=True):
-        term = concept["cn"]
-        if term in GENERIC_CONCEPTS:
-            continue
-        if term in text and term not in found:
-            found.append(term)
-    # 长词优先：已命中「肠道菌群」就不再保留「肠道」
-    found = [t for t in found if not any(t != other and t in other for other in found)]
-    found.sort(key=lambda t: text.find(t))
-    kw_norm = {str(k).strip().lower() for k in keywords}
-    return [t for t in found if t.strip().lower() not in kw_norm]
+    return []
 
 
 PLACEHOLDER_ONLY = {
     "", "...", "…", "待定", "待补充", "待确认", "todo", "tbd", "xxx", "无", "不知道",
 }
+
+
+def _terms_from_direction(direction: str, terms_en: dict[str, list[str]]) -> tuple[list[str], list[str]]:
+    """从用户给的英文对照里，挑出「筛查方向」中出现的词。
+
+    只认用户自己写的词（terms_en 的键），不内置任何领域词表：
+    - 出现在「排除/不要/不含/剔除/不收」所在分句 → 归入排除；
+    - 其余命中 → 归入纳入。
+    """
+    text = str(direction or "")
+    include: list[str] = []
+    exclude: list[str] = []
+    for cn in terms_en or {}:
+        if not cn or cn not in text:
+            continue
+        owner = include
+        for clause in re.split(r"[；;。\n]", text):
+            if cn in clause and re.search(r"排除|不要|不含|剔除|不收", clause):
+                owner = exclude
+                break
+        if cn not in owner:
+            owner.append(cn)
+    return include, exclude
+
+
+def _parse_terms_en(raw) -> dict[str, list[str]]:
+    """解析「中文=英文1,英文2; 中文2=英文3」，或直接给 dict。
+
+    这是用户自己填的语言映射，程序不做任何领域翻译。
+    """
+    if isinstance(raw, dict):
+        out: dict[str, list[str]] = {}
+        for key, value in raw.items():
+            terms = _split(value) if isinstance(value, str) else _as_list(value)
+            if str(key).strip() and terms:
+                out[str(key).strip()] = terms
+        return out
+    result: dict[str, list[str]] = {}
+    for chunk in re.split(r"[;；]", str(raw or "")):
+        if "=" not in chunk:
+            continue
+        cn, en = chunk.split("=", 1)
+        terms = _split(en)
+        if cn.strip() and terms:
+            result[cn.strip()] = terms
+    return result
 
 
 def _is_placeholder(text: str) -> bool:
@@ -426,6 +486,9 @@ def normalize_task(data: dict) -> dict:
         keywords_en = [""] * len(keywords)
     while len(keywords_en) < len(keywords):
         keywords_en.append("")
+    keywords_synonyms = _parse_terms_en(
+        data.get("keywords_synonyms") or (data.get("search") or {}).get("keywords_synonyms")
+    )
 
     scr = dict(data.get("screening") or {})
     direction = str(scr.get("direction") or "").strip()
@@ -462,8 +525,15 @@ def normalize_task(data: dict) -> dict:
     years_min = max(1900, min(years_min, CURRENT_YEAR))
     years_max = max(years_min, min(years_max, CURRENT_YEAR))
 
-    include = _as_list(scr.get("include")) or suggest_include(direction, keywords) or keywords
-    exclude = _as_list(scr.get("exclude"))
+    terms_en = _parse_terms_en(scr.get("terms_en") or data.get("terms_en"))
+    dir_include, dir_exclude = _terms_from_direction(direction, terms_en)
+    include = _as_list(scr.get("include")) or dir_include or suggest_include(direction, keywords) or keywords
+    exclude = _as_list(scr.get("exclude")) or dir_exclude
+    required_hits = _int_or(scr.get("required_hits"), 5)
+    if include:
+        required_hits = max(1, min(required_hits, len(include)))
+    else:
+        required_hits = 0
     must_have = _as_list(scr.get("must_have"))
     prefer = _as_list(scr.get("prefer"))
     doc_types = _as_list(scr.get("doc_types_exclude"))
@@ -533,6 +603,7 @@ def normalize_task(data: dict) -> dict:
         "vpn": vpn_block,
         "keywords": keywords,
         "keywords_en": keywords_en[: len(keywords)],
+        "keywords_synonyms": keywords_synonyms,
         "search_prompt": str(data.get("search_prompt") or "").strip(),
         "notes": str(data.get("notes") or "").strip(),
         "screening": {
@@ -540,6 +611,8 @@ def normalize_task(data: dict) -> dict:
             "direction": direction,
             "include": include,
             "exclude": exclude,
+            "terms_en": terms_en,
+            "required_hits": required_hits,
             "must_have": must_have,
             "prefer": prefer,
             "doc_types_exclude": doc_types,
@@ -610,13 +683,16 @@ def build_from_flags(args) -> dict:
     data = {
         "keywords": args.keywords,
         "keywords_en": args.keywords_en,
+        "keywords_synonyms": _parse_terms_en(getattr(args, "keywords_synonyms", None)),
         "search_prompt": args.prompt,
         "screening": {
             "direction": args.direction,
             "include": args.include,
             "exclude": args.exclude,
+            "terms_en": getattr(args, "terms_en", None),
             "must_have": args.must,
             "prefer": args.prefer,
+            "required_hits": getattr(args, "required_hits", None),
             "relevance": args.relevance,
             "min_score": args.min_score,
             "max_items": args.max_items,
@@ -642,25 +718,25 @@ def build_from_keyword(keyword: str, direction: str = "") -> dict:
 
 
 def groups_from_task(task: dict) -> list[dict] | None:
-    """中英关键词一一对齐时，直接作为概念组覆盖词表。
+    """中英关键词一一对齐时，直接作为概念组。
 
-    用户给的英文通常只是简写，这里再并上领域词表里的同义词与 MeSH 主题词，
-    避免 PubMed 检索式过窄（筛选阶段仍严格按方向判定）。
+    同义词/学名由用户给（`keywords_synonyms`），以 OR 并入该关键词的英文项；
+    不并内置词表，也不做 MeSH 猜测。
     """
-    import plan_query
-
     keywords = task.get("keywords") or []
     ens = task.get("keywords_en") or []
     if len(ens) != len(keywords) or not all(str(e).strip() for e in ens):
         return None
-    concept_map = {c["cn"].strip(): c for c in plan_query.CONCEPTS}
+    synonyms = task.get("keywords_synonyms") or {}
+    if not isinstance(synonyms, dict):
+        synonyms = {}
     groups = []
     for cn, en in zip(keywords, ens):
         terms: list[str] = []
         seen: set[str] = set()
 
-        def add(term: str) -> None:
-            term = str(term).strip()
+        def add(piece: str) -> None:
+            term = str(piece or "").strip()
             if not term:
                 return
             if " " in term and not term.startswith('"') and not term.endswith("*"):
@@ -672,15 +748,9 @@ def groups_from_task(task: dict) -> list[dict] | None:
 
         for piece in _split(en):
             add(piece)
-        concept = concept_map.get(cn.strip())
-        if concept:
-            for extra in concept.get("en") or []:
-                add(extra)
-        groups.append({
-            "cn": cn,
-            "en": terms,
-            "mesh": list((concept or {}).get("mesh") or []),
-        })
+        for extra in synonyms.get(str(cn), []) or []:
+            add(extra)
+        groups.append({"cn": cn, "en": terms, "mesh": []})
     return groups
 
 
@@ -704,6 +774,13 @@ def print_task(task: dict) -> None:
     print(f"  筛查方向    ：{scr['direction']}")
     print(f"  纳入要点    ：{'、'.join(scr['include']) or '（无）'}")
     print(f"  排除要点    ：{'、'.join(scr['exclude']) or '（无）'}")
+    if scr.get("terms_en"):
+        print(f"  英文对照    ：{len(scr['terms_en'])} 组（中英匹配用）")
+    if task.get("keywords_synonyms"):
+        total = sum(len(v) for v in task["keywords_synonyms"].values())
+        print(f"  关键词同义词：{total} 个（OR 并入检索式）")
+    if scr.get("required_hits"):
+        print(f"  方向要点门槛：≥{int(scr['required_hits'])} 个（不足转待定）")
     print(f"  必含条件    ：{'、'.join(scr['must_have']) or '（无）'}")
     if scr.get("doc_types_exclude"):
         print(f"  排除类型    ：{'、'.join(scr['doc_types_exclude'])}")
@@ -955,10 +1032,15 @@ def main() -> int:
                                                   "not_connected", "unknown"],
                         help="VPN 连接方式（程序不代连，只按它验证）")
     parser.add_argument("--keywords-en", help="英文关键词，逗号分隔（与中文一一对应）")
+    parser.add_argument("--keywords-synonyms",
+                        help='关键词同义词/学名："斑马鱼=danio rerio,zebrafish; 微塑料=microplastics"')
+    parser.add_argument("--required-hits", type=int, default=None,
+                        help="纳入所需方向要点数（默认 5，超过要点数时封顶）")
     parser.add_argument("--prompt", help="文献搜索提示词")
     parser.add_argument("--direction", help="筛查方向")
     parser.add_argument("--include", help="纳入要点，逗号分隔")
     parser.add_argument("--exclude", help="排除要点，逗号分隔")
+    parser.add_argument("--terms-en", help='筛查要点的英文对照："肠道菌群=gut microbiota; 炎症=inflammation"')
     parser.add_argument("--must", help="必含条件，逗号分隔")
     parser.add_argument("--prefer", help="加分项，逗号分隔")
     parser.add_argument("--doc-exclude", help="排除文献类型，逗号分隔")

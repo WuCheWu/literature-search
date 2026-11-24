@@ -33,3 +33,4 @@ run.log
 
 # 检索结果目录（含全文 PDF，体积大，留在 文献检索/ 下即可）
 全文/
+platforms.local.json

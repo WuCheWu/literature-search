@@ -69,6 +69,24 @@ def learned_path(path: str | Path | None = None) -> Path:
     return Path(env) if env else lc.SKILL_ROOT / "platform_learned.json"
 
 
+def local_path() -> Path:
+    """本机专属平台（机构 appId、内网入口等），默认不进版本库。"""
+    env = os.environ.get("LIT_PLATFORMS_LOCAL")
+    return Path(env) if env else lc.SKILL_ROOT / "platforms.local.json"
+
+
+def _load_local() -> list[dict]:
+    path = local_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(lc.read_text_auto(path))
+    except json.JSONDecodeError:
+        return []
+    items = data.get("platforms") if isinstance(data, dict) else data
+    return [p for p in (items or []) if isinstance(p, dict) and p.get("id")]
+
+
 def _ensure_registry(path: Path) -> Path:
     """缺失时从 example 复制；再缺就写一份最小注册表，保证主流程不因配置崩掉。"""
     if path.exists():
@@ -93,6 +111,11 @@ def load(path: str | Path | None = None) -> dict:
         raise SystemExit(f"[平台] {target} 不是合法 JSON：{exc}")
     if not isinstance(data.get("platforms"), list) or not data["platforms"]:
         data = {"version": 1, "platforms": list(MINIMAL)}
+    if path is None:
+        merged = {p["id"]: p for p in data["platforms"] if isinstance(p, dict) and p.get("id")}
+        for item in _load_local():
+            merged[item["id"]] = {**merged.get(item["id"], {}), **item}
+        data = {"version": data.get("version", 1), "platforms": list(merged.values())}
     data["_path"] = str(target)
     return data
 
@@ -205,13 +228,32 @@ def inline_custom(url: str, name: str = "", note: str = "用户提供的网址�
     }
 
 
-def add_custom(url: str, name: str = "", path: str | Path | None = None) -> tuple[dict, bool]:
-    """登记自定义平台。返回 (平台, 是否新建)；同主机已存在则直接返回已有条目。"""
-    data = load(path)
+def add_custom(url: str, name: str = "", path: str | Path | None = None,
+               local: bool = False) -> tuple[dict, bool]:
+    """登记自定义平台。返回 (平台, 是否新建)；同主机已存在则直接返回已有条目。
+
+    local=True 写入 platforms.local.json（不进版本库），用于机构专属入口。
+    """
     existing = resolve(url, path)
     if existing:
         return existing, False
     item = inline_custom(url, name)
+    if local:
+        target = local_path()
+        items = _load_local()
+        used = {p["id"] for p in items} | {p["id"] for p in load(path)["platforms"]}
+        base, index = item["id"], 2
+        while item["id"] in used:
+            item["id"] = f"{base}-{index}"
+            index += 1
+        items.append(item)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps({"version": 1, "platforms": items}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return item, True
+    data = load(path)
     used = {p["id"] for p in data["platforms"]}
     base, index = item["id"], 2
     while item["id"] in used:
@@ -387,6 +429,8 @@ def main() -> int:
     parser.add_argument("--show", help="查看平台完整定义")
     parser.add_argument("--add", help="登记自定义平台网址")
     parser.add_argument("--name", help="自定义平台名称（配合 --add）")
+    parser.add_argument("--local", action="store_true",
+                        help="写入 platforms.local.json（机构专属入口，不进版本库）")
     parser.add_argument("--parse", help="解析学校公布的数据库清单（文件或网址）")
     parser.add_argument("--learn", help="从 平台探测.json 学习选择器")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
@@ -411,8 +455,10 @@ def main() -> int:
         return lc.EXIT_OK
 
     if args.add:
-        item, created = add_custom(args.add, args.name or "", path)
+        item, created = add_custom(args.add, args.name or "", path, local=args.local)
+        where = "platforms.local.json（本机，不入库）" if args.local else "platforms.json"
         print(f"{'已登记' if created else '已存在'}：{item['id']}｜{item['name']}｜{item['entry']}")
+        print(f"写入：{where}")
         if created:
             print("下一步：python scripts\\probe_platform.py --platform "
                   f"{item['id']} --keyword \"你的关键词\" --save")

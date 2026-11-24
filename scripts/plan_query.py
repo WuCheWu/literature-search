@@ -11,8 +11,8 @@
     --yes                              跳过交互确认（仅 run_all 在用户已确认后使用）
 退出码：0 成功 / 2 用户取消或无法交互 / 3 输入错误
 依赖：标准库
-说明：不调用任何翻译 API。词表覆盖本实验室常见主题；未识别词会明确列出来，
-      由宿主模型用 --groups 补齐——绝不猜译。
+说明：不调用翻译 API、不内置任何领域词表；中文给 CNKI，英文由用户提供给 PubMed，
+      缺英文就停下来让用户补，绝不自动猜译。
 """
 from __future__ import annotations
 
@@ -25,50 +25,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import litcommon as lc  # noqa: E402
 
-# 概念词表：cn 为主词，en 为同义词（* 为截词），mesh 为 MeSH 主题词
-CONCEPTS = [
-    {"cn": "聚丙烯微塑料", "en": ["polypropylene", "microplastic*"], "mesh": ["Microplastics"]},
-    {"cn": "聚乙烯微塑料", "en": ["polyethylene", "microplastic*"], "mesh": ["Microplastics"]},
-    {"cn": "聚苯乙烯微塑料", "en": ["polystyrene", "microplastic*"], "mesh": ["Microplastics"]},
-    {"cn": "纳米塑料", "en": ["nanoplastic*"], "mesh": ["Microplastics"]},
-    {"cn": "微塑料", "en": ["microplastic*", "microplastics"], "mesh": ["Microplastics"]},
-    {"cn": "聚丙烯", "en": ["polypropylene"], "mesh": []},
-    {"cn": "聚乙烯", "en": ["polyethylene"], "mesh": []},
-    {"cn": "聚苯乙烯", "en": ["polystyrene"], "mesh": []},
-    {"cn": "斑马鱼", "en": ["zebrafish", '"danio rerio"'], "mesh": ["Zebrafish"]},
-    {"cn": "肠道菌群", "en": ['"gut microbiota"', '"gut microbiome"', '"intestinal flora"'],
-     "mesh": ["Gastrointestinal Microbiome"]},
-    {"cn": "肠道微生物", "en": ['"gut microbiota"', '"intestinal microbiota"'],
-     "mesh": ["Gastrointestinal Microbiome"]},
-    {"cn": "菌群", "en": ["microbiota", "microbiome"], "mesh": []},
-    {"cn": "抗氧化", "en": ["antioxidant*", '"oxidative stress"'], "mesh": ["Antioxidants"]},
-    {"cn": "氧化应激", "en": ['"oxidative stress"'], "mesh": ["Oxidative Stress"]},
-    {"cn": "炎症", "en": ["inflammat*", '"inflammatory response"'], "mesh": ["Inflammation"]},
-    {"cn": "消化", "en": ["digest*", '"digestive function"'], "mesh": ["Digestion"]},
-    {"cn": "肠道", "en": ["intestin*", "gut"], "mesh": ["Intestines"]},
-    {"cn": "肝脏", "en": ["liver", "hepat*"], "mesh": ["Liver"]},
-    {"cn": "毒性", "en": ["toxic*", "toxicity"], "mesh": []},
-    {"cn": "暴露", "en": ["exposure", "exposed"], "mesh": []},
-    {"cn": "免疫", "en": ["immun*", '"immune response"'], "mesh": []},
-    {"cn": "生长", "en": ["growth"], "mesh": []},
-    {"cn": "生殖", "en": ["reproduct*"], "mesh": ["Reproduction"]},
-    {"cn": "代谢", "en": ["metabol*"], "mesh": ["Metabolism"]},
-    {"cn": "转录组", "en": ["transcriptom*"], "mesh": ["Transcriptome"]},
-    {"cn": "蛋白质组", "en": ["proteom*"], "mesh": ["Proteome"]},
-    {"cn": "基因表达", "en": ['"gene expression"'], "mesh": ["Gene Expression"]},
-    {"cn": "生物富集", "en": ["bioaccumulat*"], "mesh": []},
-    {"cn": "水环境", "en": ['"aquatic environment"', "water"], "mesh": []},
-    {"cn": "沉积物", "en": ["sediment*"], "mesh": ["Geologic Sediments"]},
-    {"cn": "食物链", "en": ['"food chain"', '"trophic transfer"'], "mesh": ["Food Chain"]},
-    {"cn": "肠道屏障", "en": ['"intestinal barrier"', '"gut barrier"'], "mesh": []},
-    {"cn": "组织学", "en": ["histolog*"], "mesh": []},
-    {"cn": "行为", "en": ["behavio*"], "mesh": ["Behavior, Animal"]},
-]
-STOPWORDS = [
-    "的影响", "影响", "研究", "作用", "机制", "指标", "分析", "进展", "综述", "初探",
-    "探讨", "关系", "基于", "不同", "效应", "评估", "应用", "以及", "及其", "一种",
-    "对", "和", "与", "及", "的", "在", "中", "下", "上", "为", "以", "了",
-]
 CNKI_FIELD = "SU"
 
 
@@ -88,44 +44,14 @@ def _load_groups(spec: str) -> list[dict]:
 
 
 def _match(text: str) -> tuple[list[dict], str]:
-    """最长优先匹配，返回命中概念与未识别片段。"""
-    concepts = sorted(CONCEPTS, key=lambda c: len(c["cn"]), reverse=True)
-    taken = [False] * len(text)
-    hits: list[tuple[int, dict]] = []
-    for concept in concepts:
-        start = 0
-        while True:
-            idx = text.find(concept["cn"], start)
-            if idx < 0:
-                break
-            span = range(idx, idx + len(concept["cn"]))
-            if not any(taken[i] for i in span):
-                for i in span:
-                    taken[i] = True
-                hits.append((idx, concept))
-            start = idx + len(concept["cn"])
-    hits.sort(key=lambda item: item[0])
+    """没有内置词表：把用户给的关键词按标点/空格切开，每个词各成一组。
 
-    leftovers, buf = [], ""
-    for char, used in zip(text, taken):
-        if used:
-            if buf:
-                leftovers.append(buf)
-                buf = ""
-        else:
-            buf += char
-    if buf:
-        leftovers.append(buf)
-
-    unknown = []
-    for chunk in leftovers:
-        cleaned = chunk
-        for word in STOPWORDS:
-            cleaned = cleaned.replace(word, " ")
-        for piece in re.split(r"[\s，。、；：,.;:()（）\[\]【】]+", cleaned):
-            if len(re.findall(r"[\u4e00-\u9fff]", piece)) >= 2:
-                unknown.append(piece)
-    return [h[1] for h in hits], "、".join(dict.fromkeys(unknown))
+    英文必须由用户提供（--keywords-en / --groups）；这里不做任何自动翻译，
+    缺英文的词会出现在 need_manual 里，由调用方提示用户补。
+    """
+    pieces = [p for p in re.split(r"[\s,，、;；/|]+", str(text or "").strip()) if p]
+    groups = [{"cn": p, "en": [], "mesh": []} for p in pieces]
+    return groups, ""
 
 
 def _pubmed_clause(group: dict) -> str:
@@ -162,7 +88,7 @@ def print_plan(plan: dict) -> None:
         mesh = "；MeSH: " + ", ".join(group.get("mesh") or []) if group.get("mesh") else ""
         print(f"  {index}. {group['cn']:<10} → {terms}{mesh}")
     if plan["unknown"]:
-        print(f"\n  ! 未识别片段：{plan['unknown']}（不会进检索式，请用 --groups 补英文）")
+        print(f"\n  ! 未识别片段：{plan['unknown']}（不会进检索式，请用 --keywords-en / --groups 补英文）")
     print("\n=== PubMed 检索式 ===")
     print("  " + (plan["pubmed"] or "（空）"))
     print("\n=== CNKI 检索式（记录用） ===")

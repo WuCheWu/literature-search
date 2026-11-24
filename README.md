@@ -70,6 +70,9 @@ doctor.py —通过→ run_all.py
 - **每题先给推荐答案**（"我建议近 5 年、每库 20 条"），你可以直接采纳，也可以改。
 - **能自己查的不问你**：`config.json` 里已有的学校/门户、平台清单、上次运行目录、VPN 实测结果。
 - **你没确认就不开跑**：关键词、筛查方向、平台、登录状态、VPN 通道缺一项，停在退出码 2。
+- **词都由你定**：关键词、英文关键词、纳入/排除要点、中英对照，程序不内置任何领域词表，也不自动翻译；英文必须是**生物/化学专业术语**（不是日常义译）。
+- **同义词也由你给**：复数/学名/旧称填在「同义词」一题里，会以 OR 并入检索式补漏检。
+- **纳入是硬门槛**：至少命中 5 个方向要点才算「纳入」（要点不足 5 个时按要点数封顶），不足的转「待定」，并给你「降门槛 / 补要点 / 收窄方向」三选一。
 - 问题清单与推荐答案：`python scripts\intake.py --print-questionnaire`（每题带 `recommended` 与 `why`）。
 
 ### Agent 决策规则（5 条）
@@ -119,7 +122,8 @@ python scripts\run_all.py --interactive   # ② 一条命令走完，它会问�
 ```
 
 会问：关键词、一句话说明要解决什么、**筛查方向**（必填）、文献时间、期望相关度。
-答完先给你看检索式（回车通过），再依次跑 VPN 预检 → 平台登录 → 检索 → 筛选 → 下载 → 出表。
+答完先给你看检索式（回车通过），然后会弹一次「需要调用 PowerShell 读取网卡与进程，检测 VPN 状态」的确认——
+**允许才检测**；检测不到 VPN 就停，不检索任何网络资源。
 中途要你动手的只有三件：**连 VPN、在浏览器里登录一次、拖一次滑块**。
 
 只想先落一份任务文件：
@@ -169,13 +173,17 @@ D:\literature-search\输出\<关键词1>_<关键词2>_<日期>\
 | PDF 只有几 KB | 下到登录页/错误页 | 脚本会删掉并记「下载失败」，重跑通常能过 |
 | 换了学校/账号后仍判定旧状态 | 缓存没过期 | 加 `--refresh-probe` 重跑 |
 | 控制台中文乱码 | 终端不是 UTF-8 | PowerShell 先 `chcp 65001`，或换 Windows Terminal |
-| `[阻塞] 检索式为空` | 主题不在内置词表 | 补 `--keywords-en`（与中文一一对应）重跑 |
+| `【需要你处理】检测 VPN 需要运行 PowerShell…` | 检测前要一次许可 | 回复「允许检测 VPN」，重跑时加 `--allow-vpn-detect` |
+| `【需要你处理】未检测到 VPN 接入` | VPN 没连，已停止（未检索任何资源） | 连上 VPN 后重跑 |
+| `检测到 VPN 接入可能已断开（…）` | 跑到一半断线 | 重连后重跑，已完成记录/下载不会丢 |
+| `--skip-vpn 不再可用` | 该开关已被废除 | 去掉它；先连 VPN，再带 `--allow-vpn-detect` |
+| `[阻塞] 检索式为空` | 缺英文关键词（程序不自动翻译） | 补 `--keywords-en`（与中文一一对应）重跑 |
 
 ---
 
 ## 6. 平台与权限
 
-`platforms.json` 注册 **7 个平台**（`--platforms` 用这些 id）：
+`platforms.json` 注册 **8 个平台**（`--platforms` 用这些 id）：
 
 | id | 平台 | 网址 | 访问方式 | 全文能力 |
 | --- | --- | --- | --- | --- |
@@ -186,6 +194,16 @@ D:\literature-search\输出\<关键词1>_<关键词2>_<日期>\
 | `scifinder-n` | CAS SciFindern | https://scifinder-n.cas.org/ | CAS 账号 | 订阅全文/专利链接 |
 | `cas-methods` | CAS Analytical Methods | https://methods.cas.org | CAS 账号 | 方法全文 |
 | `cas-formulus` | CAS Formulus | https://formulus.cas.org | CAS 账号 | 配方全文 |
+| `pubscholar` | PubScholar 公益学术平台 | https://pubscholar.cn/explore | 公开 | 题录 + 全文链接（下载看平台权限） |
+| `marxism-ssap` | 马克思主义研究数据库（社科文献） | https://marxism.ssap.com.cn/ | 公开（检索免登录） | 全文需机构/个人登录 |
+| `mks-cnki` | 马克思主义理论学科知识服务平台（CNKI） | https://mks.cnki.net/index.html | CNKI 机构账号（需登录） | 学校订阅 |
+
+> 机构专属入口（例如带学校 `appId` 的掌阅机构版）**不要写进本文件**，用
+> `python scripts\platforms.py --add "<你的入口网址>" --name "名称" --local` 写进
+> `platforms.local.json`（已在 `.gitignore` 中，不进公开仓库）。
+
+> PubScholar 只能走可见浏览器：站点禁止第三方直连 API（`/hky` 直连返回 403
+> 「第三方应用独立请求时，无此操作权限」）。首次使用需要校准选择器。
 
 知网名下另有两个入口网址，**同属 `cnki`，不是独立 id**（要直接查它们用 `platform_search.py --entry`）：
 旧版 https://www.cnki.net/old · 专利 CIPD http://epub.cnki.net/kns/brief/result.aspx?dbPrefix=CIPD 。

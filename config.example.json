@@ -4,7 +4,8 @@
     "portal": "https://vpn.example.edu.cn/",
     "client_dir": "C:\\Program Files (x86)\\Sangfor\\SSL\\EasyConnect",
     "vnic_desc_match": "Sangfor SSL VPN",
-    "cnki_probe_route": ""
+    "cnki_probe_route": "",
+    "client": "easyconnect"
   },
   "institution": {
     "name": "示例大学",

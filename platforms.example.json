@@ -236,6 +236,127 @@
       "order": 7,
       "selectable": true,
       "note": "配方/剂型数据库；同样需要 CAS 账号，页面为 JS 应用，通用适配器只做尽力抓取。"
+    },
+    {
+      "id": "pubscholar",
+      "name": "PubScholar 公益学术平台",
+      "short": "PubScholar",
+      "aliases": [
+        "pubscholar",
+        "pub scholar",
+        "公益学术平台",
+        "pubscholar.cn"
+      ],
+      "home": "https://pubscholar.cn/",
+      "entry": "https://pubscholar.cn/explore",
+      "entries": [
+        {
+          "label": "PubScholar 检索页",
+          "url": "https://pubscholar.cn/explore"
+        }
+      ],
+      "lang": "zh",
+      "kind": "index",
+      "access": "open",
+      "access_label": "公开（无需校园订阅）",
+      "fulltext": "link",
+      "fulltext_label": "题录 + 全文链接（下载看平台权限）",
+      "adapter": "generic",
+      "selectors": {},
+      "order": 8,
+      "selectable": true,
+      "note": "中科院文献情报中心的公益学术平台。站点禁止第三方直连 API（/hky 直连返回 403「第三方应用独立请求时，无此操作权限」），只能用可见浏览器检索；选择器首次运行需校准。"
+    },
+    {
+      "id": "marxism-ssap",
+      "name": "马克思主义研究数据库（社科文献）",
+      "short": "马研库",
+      "aliases": [
+        "marxism-ssap",
+        "马克思主义研究数据库",
+        "社科文献",
+        "ssap",
+        "马研库"
+      ],
+      "home": "https://marxism.ssap.com.cn/",
+      "entry": "https://marxism.ssap.com.cn/",
+      "entries": [
+        {
+          "label": "首页检索",
+          "url": "https://marxism.ssap.com.cn/"
+        },
+        {
+          "label": "高级检索",
+          "url": "https://marxism.ssap.com.cn/skwx_marxism/AdvancedSearch.aspx"
+        }
+      ],
+      "lang": "zh",
+      "kind": "fulltext",
+      "access": "open",
+      "access_label": "公开（检索免登录）",
+      "fulltext": "subscription",
+      "fulltext_label": "全文需机构/个人登录",
+      "adapter": "generic",
+      "selectors": {
+        "search_input": [
+          "#pub_search_ipt",
+          "input.search_ipt"
+        ],
+        "search_button": [
+          "#btnsearch",
+          ".search_btn"
+        ],
+        "item_link": [
+          "a[href*='LiteratureDetail.aspx']",
+          "a[href*='BookDetail.aspx']"
+        ],
+        "title": [
+          "h3.book_tts",
+          ".book_tts"
+        ]
+      },
+      "order": 9,
+      "selectable": true,
+      "note": "社科文献出版社。实测 2026-11-22（Edge）：首页可检索、免登录；点检索后新标签打开 `/skwx_marxism/Search.aspx?searchtype=1&searchfield=1&keywords=<关键词>`，「马克思主义」得 5389 条。结果页 JS 渲染，条目选择器需首跑用 probe --save 校准；全文要机构/个人登录。"
+    },
+    {
+      "id": "mks-cnki",
+      "name": "马克思主义理论学科知识服务平台（CNKI）",
+      "short": "马理论平台",
+      "aliases": [
+        "mks-cnki",
+        "mks",
+        "马克思主义理论学科知识服务平台",
+        "知网马理论"
+      ],
+      "home": "https://mks.cnki.net/",
+      "entry": "https://mks.cnki.net/index.html",
+      "entries": [
+        {
+          "label": "平台首页",
+          "url": "https://mks.cnki.net/index.html"
+        }
+      ],
+      "lang": "zh",
+      "kind": "fulltext",
+      "access": "account",
+      "access_label": "CNKI 机构账号（需登录）",
+      "fulltext": "subscription",
+      "fulltext_label": "学校订阅（CNKI）",
+      "adapter": "generic",
+      "selectors": {
+        "search_input": [
+          "#searchtext",
+          "input[name='textfiled']"
+        ],
+        "search_button": [
+          "input.secbtn",
+          ".secbtn"
+        ]
+      },
+      "order": 10,
+      "selectable": true,
+      "note": "CNKI 子平台。实测 2026-11-22（Edge）：首页是登录落地页，只有「登录」按钮、没有检索框；必须先人工登录，登录后才进入检索应用。选择器等登录后校准。"
     }
   ]
 }

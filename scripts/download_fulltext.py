@@ -110,6 +110,18 @@ def _has_playwright() -> bool:
     return importlib.util.find_spec("playwright") is not None
 
 
+def _vpn_alive(cfg: dict, log, stage: str) -> bool:
+    """下载途中查一次 VPN；断了就返回 False，由调用方中止并提示用户。"""
+    try:
+        import vpn_check
+    except Exception:  # noqa: BLE001
+        return True
+    ok, reasons = vpn_check.check(cfg)
+    if not ok:
+        log(f"[VPN] {stage}检测到接入中断：{'；'.join(reasons)}")
+    return ok
+
+
 def _browser_pmc_batch(cfg: dict, jobs: list[dict], out_dir: Path, log, interval: float) -> int:
     """PMC 直连被 Cloudflare 403 时的浏览器兜底。
 
@@ -350,6 +362,7 @@ def run(cfg: dict, run_dir: Path, log, max_count: int | None = None,
     if do_pubmed:
         session = lc.build_session()
         pending_pmc = []
+        checked = 0
         for rec in records:
             if rec.get("source_db") != "pubmed":
                 continue
@@ -359,6 +372,12 @@ def run(cfg: dict, run_dir: Path, log, max_count: int | None = None,
             if done >= limit:
                 rec["备注"] = rec.get("备注") or "超出本次下载上限"
                 continue
+            checked += 1
+            if checked % 5 == 0 and not _vpn_alive(cfg, log, "PubMed 下载中"):
+                for rest in records:
+                    if rest.get("source_db") == "pubmed" and rest.get("全文状态") != "已下载":
+                        rest["备注"] = "VPN 断开，未下载"
+                return lc.EXIT_NEED_USER, records
             already = rec.get("全文状态") == "已下载" and Path(rec.get("本地文件") or "").exists()
             _pubmed_one(session, rec, cfg, out_dir, log)
             if rec["全文状态"] == "下载失败":

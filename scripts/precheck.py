@@ -75,7 +75,7 @@ def confirm_interactively(facts: dict) -> tuple[bool, bool, str]:
 
 def run(cfg: dict, run_dir: Path, keyword: str, log,
         selectors: dict | None = None, assume_confirmed: bool = False,
-        skip_institution: bool = False) -> tuple[int, dict]:
+        skip_institution: bool = False, allow_detect: bool = False) -> tuple[int, dict]:
     """返回 (退出码, 预检记录)。所有事实写入 <run_dir>/预检确认.json。"""
     sel = selectors or bu.load_selectors(None, log)
     info = {
@@ -88,21 +88,32 @@ def run(cfg: dict, run_dir: Path, keyword: str, log,
     }
 
     # ① 技术预检
-    log("[预检] 第 1 步：检查 EasyConnect、虚拟网卡与知网路由")
+    log("[预检] 第 1 步：检查 VPN 客户端、虚拟网卡与知网路由")
+    vpn_check.confirm_detect(allow_detect, log)
     facts = vpn_check.collect_facts(cfg)
     vpn_ok, reasons = vpn_check.judge(facts)
     vpn_check.print_summary(facts)
     info["vpn"] = {"ok": vpn_ok, "reasons": reasons, "facts": facts}
     if not vpn_ok:
-        print("\n=== 预判：未连接 ===")
+        print("\n=== 预判：未检测到 VPN 接入 ===")
         for reason in reasons:
             print(f"  x {reason}")
-        print("\n" + vpn_check.GUIDE)
-        info["reason"] = "VPN 未连接：" + "；".join(reasons)
-        lc.write_json(run_dir / "预检确认.json", info)
-        log("[预检] VPN 未连接，流程暂停（不打开数据库、不生成清单）")
-        print(PAUSE_BANNER)
-        return lc.EXIT_NEED_USER, info
+        # 规则：检测不到时必须询问接入状态；用户说连上了就复检一次
+        if sys.stdin.isatty():
+            answered = _ask_yes("\n  你的 VPN 现在是否已经连接（客户端显示「已连接」）？")
+            if answered:
+                log("[预检] 用户称已连接，重新检测")
+                facts = vpn_check.collect_facts(cfg)
+                vpn_ok, reasons = vpn_check.judge(facts)
+                info["vpn"] = {"ok": vpn_ok, "reasons": reasons, "facts": facts,
+                               "recheck": True}
+        if not vpn_ok:
+            print("\n" + vpn_check.GUIDE)
+            info["reason"] = "VPN 未连接：" + "；".join(reasons)
+            lc.write_json(run_dir / "预检确认.json", info)
+            log("[预检] VPN 未连接，流程暂停（不打开数据库、不检索、不下载）")
+            print(PAUSE_BANNER)
+            return lc.EXIT_NEED_USER, info
     print("\n  ✓ 虚拟网卡 Up、知网路由存在（这只是技术预检，账号还要确认）")
 
     # ② 用户确认

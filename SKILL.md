@@ -25,11 +25,18 @@ description: >
 | 规则 | 要求 | 落点 |
 | --- | --- | --- |
 | 规则 5 | 按学校公布的文件设置平台并检索；查询失败后询问账号密码；自助探测用户给的中/外网网址能否下载 | `intake.py --school-list` / `platforms.py --parse`；`platform_search.py` 登录墙返回 2；`probe_platform.py` 能力探测 |
-| 规则 6 | 可用平台：SinoMed、知网新版/旧版/CIPD、ScienceDirect、CAS SciFindern、Analytical Methods、Formulus | `platforms.json` 内置 7 个平台家族/8 个规定网址，脚本只认注册表 + 用户网址 |
+| 规则 6 | 可用平台：SinoMed、知网新版/旧版/CIPD、ScienceDirect、CAS SciFindern、Analytical Methods、Formulus；另加 PubScholar | `platforms.json` 内置 8 个平台（6 家族/8 规定网址 + PubMed + PubScholar），脚本只认注册表 + 用户网址 |
 | 规则 7 | 有些平台第一次要登录并设置机构/学校，否则拿不到文献；必须先问用户 | `intake.py` 采集 `login_setup`；`platform_login.py` 逐平台确认/等待登录；`run_all.py` Step 3 未确认即暂停 |
 
 ## 1. 铁律（不可协商）
 
+0. **VPN 硬闸（最高优先级）**：
+   - 检测 VPN 前必须先在宿主界面弹确认（同款审批框）：
+     「需要调用 PowerShell 读取网卡与进程，检测 VPN 状态」；
+   - **未获允许 → 不检测、不检索、不下载**，退出码 2，告诉用户怎么允许；
+   - 运行中任何阶段（PubMed / 知网 / 其他平台 / 下载途中）检测不到 VPN → **立即停**，
+     提示「检测到 VPN 接入可能已断开（阶段），请重连后重跑」，已完成的记录与下载保留；
+   - `--skip-vpn` 已废除（传了直接退出码 3）；`--allow-vpn-detect` 表示「用户已允许检测」。
 1. **先问再做**：启动必须先拿到「关键词 + 文献搜索提示词 + 筛查方向 + 检索平台 + 首次登录状态」；
    没有筛查方向不得筛选，没有平台不得检索，缺项就问，不猜。
 2. **三关确认，缺一不检索**：
@@ -103,10 +110,16 @@ VPN 通道 ──┬─ 学校叫什么
 | --- | --- | --- |
 | 用什么方式连 VPN | 用你现有的客户端自己连，程序不启动客户端、不碰账号密码 | 登录由人完成，程序只验证结果 |
 | 连没连上 | 不口头确认，直接做机构识别实测（知网结果页出现校名） | 网卡有 IP ≠ 已连接；门户 200 ≠ 已连接 |
-| 查哪些关键词 | 用户原话里的名词；英文缺了先用内置词表补，补不出就停下问 | 空检索式会产出看着正常的「0 篇」 |
+| 查哪些关键词 | 用户原话里的名词；英文由用户提供，程序不自动翻译 | 缺英文会拼出空检索式，宁可停下问 |
 | 筛查方向 | 一句话说清「只保留什么 + 排除什么」，不接受「待定」「...」 | 占位符会被当规则写进任务 |
 | 时间 / 条数 / 相关度 | 近 5 年 / 每库 20 条 / 标准档 | 准确率与耗时的平衡点 |
 | 要不要全文 | 默认只下「纳入」；没有 playwright 或邮箱时降级并说明 | 缺依赖不该拖垮整轮，但必须告知 |
+
+### 1.5.4 英文词的专业性（硬要求）
+
+中文→英文**必须用生物学/化学的学科术语**，不用日常义译；拿不准就给 2–3 个候选让用户挑，
+最终以用户确认为准（写进 `keywords_en` 或 `screening.terms_en`）。
+`expose`/`effect`/`study` 这类泛词不能单独充当检索词。
 
 ## 2. Step 0：启动交互（必做，不能跳）
 
@@ -124,8 +137,10 @@ VPN 通道 ──┬─ 学校叫什么
 | 项 | 必填 | 说明 | 选项/示例 |
 | --- | --- | --- | --- |
 | **VPN 通道** | **是** | 你学校用哪种方式连 VPN（EasyConnect / 其他客户端 / WebVPN）；程序只检测、不代连、不启动客户端 | 默认「还没连，我先去连」；落盘为 `task.vpn.channel` |
-| 关键词 | 是 | 中文，逗号分隔；英文另给或由词表补 | `斑马鱼, 微塑料` |
-| 英文关键词 | 否 | 与中文一一对应，生成 PubMed 概念组 | `zebrafish, microplastic` |
+| 关键词 | 是 | 中文，逗号分隔；英文必须由用户给（程序不翻译） | `斑马鱼, 微塑料` |
+| 英文关键词 | 否 | 与中文一一对应，用于 PubMed；**由用户提供、用生物/化学专业术语**，程序不内置词表、不自动翻译 | `zebrafish, microplastic` |
+| 关键词同义词 | 否 | 用户给的复数/学名/旧称，以 OR 并入检索式，补漏检 | `斑马鱼=danio rerio; 微塑料=microplastics,nanoplastic*` |
+| 方向要点门槛 | 否 | 纳入须命中的方向要点数（默认 5，超过要点数时封顶） | `5` |
 | 文献搜索提示词 | 否 | 一句话研究问题 | `聚丙烯微塑料暴露对斑马鱼肠道菌群的影响` |
 | 筛查方向 | 是 | 只保留什么样的文献；逐篇判定的硬规则 | `斑马鱼活体暴露，关注肠道菌群/炎症/抗氧化；排除吸附降解` |
 | 纳入/排除/必含 | 否 | 纳入要点可从方向自动识别；排除词命中标题即排除；必含缺失即排除 | `肠道菌群, 炎症` / `综述, 吸附` / `斑马鱼` |
@@ -259,8 +274,13 @@ python scripts\probe_platform.py --all --quick
 | CAS Analytical Methods | `https://methods.cas.org` | CAS 个人账号 | 方法全文 | 通用（JS 应用） |
 | CAS Formulus | `https://formulus.cas.org` | CAS 个人账号 | 配方全文 | 通用（JS 应用） |
 | PubMed | `https://pubmed.ncbi.nlm.nih.gov/` | 公开 | OA/出版社页面 | 专用 API |
+| PubScholar | `https://pubscholar.cn/explore` | 公开 | 题录 + 全文链接（下载看权限） | 通用（可见浏览器） |
+| 马研库 | `https://marxism.ssap.com.cn/` | 公开（检索免登录） | 全文需机构/个人登录 | 通用（可见浏览器） |
+| 马理论平台 | `https://mks.cnki.net/index.html` | CNKI 机构账号（需登录） | 学校订阅 | 通用（可见浏览器） |
 
-> 规则 6 的 8 个网址全部在上面；PubMed 是原有公共库，保留但不替代学校订阅库。
+> 规则 6 的 8 个网址全部在上面；PubMed 与 PubScholar 是公共库，保留但不替代学校订阅库。
+> PubScholar 禁止第三方直连 API（`/hky` 返回 403「第三方应用独立请求时，无此操作权限」），
+> 只能像知网一样用可见浏览器检索，选择器首次运行需校准。
 
 ### 4.2 从学校清单设置平台
 
@@ -340,7 +360,7 @@ python scripts\creds.py --delete scifinder-n
 
 ### Step 1 检索式确认（`plan_query.py`）
 
-输出概念组（中英同义词 + MeSH）、PubMed 式、CNKI 字段式、CNKI 实际输入；缺英文且词表没有 → 退出码 2，不猜译。
+输出概念组（用户给的中英关键词对）、PubMed 式、CNKI 字段式、CNKI 实际输入；缺英文 → 退出码 2，提示补 `--keywords-en`，不猜译、不查内置词表。
 
 ### Step 2 预检（`precheck.py`）
 
@@ -410,14 +430,22 @@ python scripts\creds.py --delete scifinder-n
 ### 7.3 判定
 
 - `score ≥ min_score`（标准 55 / 宽松 40 / 严格 70）→ **纳入**
+- **方向要点硬规则**：纳入还须命中 `screening.required_hits` 个方向要点（默认 5，
+  上限为该任务的方向要点数：要点只有 4 个时按 4 执行并提示）。不足 → **最高待定**，
+  依据写「方向要点命中 X/N（纳入硬规则 ≥N，未达硬规则已降为待定）」。
 - `min_score - band ≤ score < min_score` → **待定**
 - 其余 → **排除**；摘要缺失导致信息不足时从排除上调为待定
 - 纳入超过 `max_items` 的部分转待定，依据里写「超出上限」
 
+降级过多时（运行日志会统计条数），给用户三选一：
+A 降低 `--required-hits` 重筛（不重检索）；B 补充 `include` / `terms_en` 要点；
+C 把筛查方向写窄。**不要替用户自动放宽。**
+
 ### 7.4 中英互译
 
-中文要点用 `plan_query` 的领域词表扩展英文同义词再匹配（`斑马鱼 → zebrafish, danio rerio`；
-`肠道菌群 → gut microbiota, intestinal flora`；`氧化应激 → oxidative stress`）。词表没有的词在任务里补英文。
+**不使用内置领域词表，也不调用翻译服务。** 中文要点按任务里的 `screening.terms_en` 扩展
+（用户自己填的「中文=英文」对照，如 `肠道菌群=gut microbiota; 炎症=inflammation`）；
+没给英文对照时，中文要点只能匹配中文题录，日志会提示「纳入/排除可能偏宽」。
 
 ### 7.5 选择依据必须包含
 
@@ -478,7 +506,7 @@ python scripts\creds.py --delete scifinder-n
 | 知网详情页 `h1` | 第一个 `h1` 是登录弹窗 | 用 `.wx-tit h1` |
 | 摘要取不到 | 摘要是 `span#ChDivSummary` | 选择器用 `#ChDivSummary`，`text_content()` |
 | 作者混入机构 | `#authorpart` 带「XX大学XX学院」 | `#authorpart a` + 过滤机构关键词 |
-| 英文文献被判缺必含 | 中文必含词匹配不到 zebrafish | 词表双向扩展，或任务补英文 |
+| 英文文献被判缺必含 | 中文必含词匹配不到 zebrafish | 在任务里填 `screening.terms_en`（中文=英文），或补必含词的英文 |
 | 网络首发年份超前 | 知网显示 2027 | 下限硬排除，上限只标注 |
 | PMC 403 | requests 直连全 403 | 浏览器过盾后 `api/getPdf` |
 | 登录后又被判登录 | 登录成功后又 goto 登录入口，页面仍是登录表单 | 登录成功后先检查当前页；仍是登录页才回入口（已修） |
@@ -493,10 +521,10 @@ python scripts\creds.py --delete scifinder-n
 
 ## 12. 验收清单
 
-- [ ] `intake.py --print-questionnaire` 含 `platforms`（7 个平台选项）、`school_list`、`custom_urls`、`login_setup`、`login_pending`
+- [ ] `intake.py --print-questionnaire` 含 `platforms`（8 个平台选项）、`school_list`、`custom_urls`、`login_setup`、`login_pending`
 - [ ] 任务缺 `screening.direction` → 退出码 3；未知平台 → 退出码 3 并提示 `platforms.py --add`
 - [ ] `platforms.py --parse` 能识别清单里的知网/SinoMed/ScienceDirect/SciFindern，未识别网址单列
-- [ ] `platforms.json` 含规则 6 的全部 8 个网址（知网 3 个 + SinoMed + ScienceDirect + CAS 3 个）
+- [ ] `platforms.json` 含规则 6 的全部 8 个网址（知网 3 个 + SinoMed + ScienceDirect + CAS 3 个）+ PubMed + PubScholar
 - [ ] 用户说「第一次登录/不确定」且未确认 → `run_all` 退出码 2，不探测、不检索
 - [ ] `platform_login.py --print-questions` 逐平台给出「是否登录过/是否设置机构」
 - [ ] `probe_platform.py` 对可检索+有 PDF 的站点判 `fulltext_ok`；只有题录判 `metadata_only`；登录墙判 `login_required`
@@ -535,7 +563,7 @@ python scripts\creds.py --delete scifinder-n
 
 公共模块：`litcommon.py`（配置/日志/路径/退出码/合并 records）、`browser_util.py`（可见 Edge/profile/清代理/滑块）、
 `platforms.py`（注册表/清单解析/选择器学习）、`platform_util.py`（登录识别/检索框/结果抽取/meta 解析/PDF 入口）、
-`plan_query.CONCEPTS`（中英领域词表，筛选也用它）。
+`plan_query.py`（只用用户给的关键词拼检索式，不内置任何领域词表）。
 
 ## 附录 B：选择器校准
 
